@@ -1,7 +1,11 @@
-import { AuthResponse, HealthResponse, MessageRecord, RegisterResponse } from './types.js';
+import { AuthResponse, HealthResponse, MessageRecord, RegisterResponse, RoomRecord } from './types.js';
 
 export class HermesApi {
   constructor(private readonly baseUrl: string) {}
+
+  private authHeaders(token: string): Record<string, string> {
+    return { Authorization: `Bearer ${token}` };
+  }
 
   async health(): Promise<HealthResponse> {
     const response = await fetch(`${this.baseUrl}/health`);
@@ -42,8 +46,22 @@ export class HermesApi {
     return response.json() as Promise<AuthResponse>;
   }
 
-  async listMessages(room: string): Promise<MessageRecord[]> {
-    const response = await fetch(`${this.baseUrl}/messages?room=${encodeURIComponent(room)}`);
+  async listRooms(token: string): Promise<RoomRecord[]> {
+    const response = await fetch(`${this.baseUrl}/rooms`, {
+      headers: this.authHeaders(token),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`List rooms failed: ${response.status} ${text}`);
+    }
+
+    return response.json() as Promise<RoomRecord[]>;
+  }
+
+  async listMessages(room: string, token: string): Promise<MessageRecord[]> {
+    const response = await fetch(`${this.baseUrl}/messages?room=${encodeURIComponent(room)}`, {
+      headers: this.authHeaders(token),
+    });
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`List messages failed: ${response.status} ${text}`);
@@ -55,7 +73,7 @@ export class HermesApi {
   async createMessage(room: string, sender: string, content: string, token: string): Promise<MessageRecord> {
     const response = await fetch(`${this.baseUrl}/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
       body: JSON.stringify({ room, sender, content, token }),
     });
 

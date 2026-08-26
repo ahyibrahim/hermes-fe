@@ -26,6 +26,15 @@ export interface HealthResponse {
   message: string;
 }
 
+export interface RoomRecord {
+  id: number;
+  slug: string;
+  name: string;
+  type?: string;
+  created_at?: string;
+  members?: string[];
+}
+
 export interface ClientState {
   username: string | null;
   token: string | null;

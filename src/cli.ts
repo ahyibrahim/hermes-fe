@@ -4,7 +4,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { HermesApi } from './api.js';
 import { parseChatLine } from './commands.js';
 import { printAbovePrompt, questionPassword } from './terminal.js';
-import { ClientState, MessageRecord } from './types.js';
+import { ClientState, MessageRecord, RoomRecord } from './types.js';
 import { HermesWsClient, WsIncomingMessage } from './ws.js';
 
 const state: ClientState = {
@@ -277,9 +277,59 @@ async function ensureAuthenticated(): Promise<void> {
   }
 }
 
+function resolveRoom(input: string, rooms: RoomRecord[]): { slug: string; members: string[] } {
+  const trimmed = input.trim();
+  const bySlug = rooms.find((room) => room.slug === trimmed);
+  if (bySlug) {
+    return { slug: bySlug.slug, members: bySlug.members ?? [] };
+  }
+
+  const byName = rooms.find((room) => room.name.toLowerCase() === trimmed.toLowerCase());
+  if (byName) {
+    return { slug: byName.slug, members: byName.members ?? [] };
+  }
+
+  if (/^\d+$/.test(trimmed)) {
+    const byId = rooms.find((room) => room.id === Number(trimmed));
+    if (byId) {
+      return { slug: byId.slug, members: byId.members ?? [] };
+    }
+  }
+
+  return { slug: trimmed, members: [] };
+}
+
+function printRoomList(rooms: RoomRecord[]): void {
+  if (rooms.length === 0) {
+    say('No rooms returned by the backend.');
+    return;
+  }
+
+  say('Available rooms:');
+  for (const room of rooms) {
+    say(`  ${room.id}  ${room.slug}  ${room.name}`);
+  }
+}
+
+async function loadRooms(): Promise<RoomRecord[]> {
+  if (!state.token) {
+    return [];
+  }
+
+  try {
+    return await api.listRooms(state.token);
+  } catch (error) {
+    say(`Could not list rooms: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+}
+
 async function promptForRoom(): Promise<string> {
+  const rooms = await loadRooms();
+  printRoomList(rooms);
+
   while (true) {
-    const room = (await rl.question('Room: ')).trim();
+    const room = (await rl.question('Room (id or slug): ')).trim();
     if (room) {
       return room;
     }
@@ -288,17 +338,25 @@ async function promptForRoom(): Promise<string> {
   }
 }
 
-async function enterRoom(room: string): Promise<void> {
+async function enterRoom(roomInput: string): Promise<void> {
   if (!state.username) {
     say('Please login first.');
     return;
+  }
+
+  const rooms = await loadRooms();
+  const resolved = resolveRoom(roomInput, rooms);
+  const room = resolved.slug;
+
+  if (resolved.slug !== roomInput) {
+    say(`Using room ${resolved.slug} (from ${roomInput}).`);
   }
 
   state.room = room;
   state.messages = [];
   displayedMessageIds.clear();
   pendingEchoes.length = 0;
-  setRoster(state.username ? [state.username] : []);
+  setRoster(resolved.members.length > 0 ? resolved.members : state.username ? [state.username] : []);
 
   try {
     await connectWebSocket();
@@ -311,9 +369,13 @@ async function enterRoom(room: string): Promise<void> {
   say(formatUsersLine());
 
   try {
-    const messages = await api.listMessages(room);
-    state.messages = messages;
-    printMessages(messages);
+    if (!state.token) {
+      say('Could not load history: missing auth token. Please login again.');
+    } else {
+      const messages = await api.listMessages(room, state.token);
+      state.messages = messages;
+      printMessages(messages);
+    }
   } catch (error) {
     say(`Could not load history: ${error instanceof Error ? error.message : String(error)}`);
   }
