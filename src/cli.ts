@@ -2,70 +2,198 @@
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { HermesApi } from './api.js';
-import { parseCommand } from './commands.js';
+import { parseChatLine } from './commands.js';
+import { printAbovePrompt, questionPassword } from './terminal.js';
 import { ClientState, MessageRecord } from './types.js';
-import { HermesWsClient } from './ws.js';
+import { HermesWsClient, WsIncomingMessage } from './ws.js';
 
 const state: ClientState = {
   username: null,
   token: null,
   room: null,
+  roomUsers: [],
   messages: [],
-  baseUrl: process.env.HERMES_BASE_URL || 'http://127.0.0.1:3000',
+  baseUrl: process.env.HERMES_BASE_URL || 'http://ying-1:3000',
 };
 
 const api = new HermesApi(state.baseUrl);
 const ws = new HermesWsClient(state.baseUrl);
 const rl = readline.createInterface({ input, output });
+const displayedMessageIds = new Set<number>();
+const pendingEchoes: Array<{ content: string; at: number }> = [];
 let socketListenersRegistered = false;
+let inChat = false;
+
+function say(line: string): void {
+  if (inChat) {
+    printAbovePrompt(rl, line);
+    return;
+  }
+
+  console.log(line);
+}
+
+function chatPrompt(): string {
+  const room = state.room ?? 'no-room';
+  if (ws.getStatus() !== 'open') {
+    return `[${room} | offline] `;
+  }
+
+  return `[${room}] `;
+}
+
+function refreshPrompt(): void {
+  rl.setPrompt(chatPrompt());
+}
+
+function formatUsersLine(): string {
+  const names = new Set(state.roomUsers);
+  if (names.size === 0 && state.username) {
+    names.add(state.username);
+  }
+
+  const sorted = [...names].sort((a, b) => a.localeCompare(b));
+  return `Users: ${sorted.join(', ') || '(none)'}`;
+}
+
+function formatMessage(message: MessageRecord): string {
+  return `[${message.created_at}] ${message.sender}: ${message.content}`;
+}
 
 function printHelp(): void {
-  console.log(`
-Available commands:
-  help                 Show this help
-  health               Check backend health
-  register <user> <password>
-  login <user> <password>
-  join <room>          Join a room over WebSocket
-  history <room>       Fetch room history from REST
-  send <message>       Send a message to the current room
-  messages             Show current message list
-  quit                 Exit the client
+  say(`
+Slash commands:
+  /help              Show this help
+  /health            Check backend health
+  /join <room>       Switch room, reload users and history
+  /quit              Exit the client
+Type a message and press Enter to send.
 `);
 }
 
 function printMessages(messages: MessageRecord[]): void {
   if (messages.length === 0) {
-    console.log('No messages yet.');
+    say('No messages yet.');
     return;
   }
 
   for (const message of messages) {
-    console.log(`[${message.created_at}] ${message.sender}: ${message.content}`);
+    displayedMessageIds.add(message.id);
+    say(formatMessage(message));
   }
+}
+
+function rememberPendingEcho(content: string): void {
+  pendingEchoes.push({ content, at: Date.now() });
+}
+
+function consumePendingEcho(content: string, sender: string): boolean {
+  if (sender !== state.username) {
+    return false;
+  }
+
+  const cutoff = Date.now() - 10_000;
+  const index = pendingEchoes.findIndex((entry) => entry.content === content && entry.at >= cutoff);
+  if (index === -1) {
+    return false;
+  }
+
+  pendingEchoes.splice(index, 1);
+  return true;
+}
+
+function roomMatches(payload: WsIncomingMessage): boolean {
+  return payload.room === undefined || payload.room === state.room;
+}
+
+function setRoster(users: string[]): void {
+  state.roomUsers = [...new Set(users)];
+}
+
+function addRoomUser(user: string): boolean {
+  if (state.roomUsers.includes(user)) {
+    return false;
+  }
+
+  state.roomUsers.push(user);
+  return true;
+}
+
+function removeRoomUser(user: string): boolean {
+  const next = state.roomUsers.filter((name) => name !== user);
+  if (next.length === state.roomUsers.length) {
+    return false;
+  }
+
+  state.roomUsers = next;
+  return true;
+}
+
+function handlePresence(payload: WsIncomingMessage): boolean {
+  if (payload.type === 'room_users' && roomMatches(payload) && Array.isArray(payload.users)) {
+    setRoster(payload.users);
+    say(formatUsersLine());
+    return true;
+  }
+
+  if (payload.type === 'user_joined' && payload.user && roomMatches(payload)) {
+    if (addRoomUser(payload.user)) {
+      say(formatUsersLine());
+    }
+    return true;
+  }
+
+  if (payload.type === 'user_left' && payload.user && roomMatches(payload)) {
+    if (removeRoomUser(payload.user)) {
+      say(formatUsersLine());
+    }
+    return true;
+  }
+
+  return false;
 }
 
 async function connectWebSocket(): Promise<void> {
   if (!socketListenersRegistered) {
     ws.onMessage((payload) => {
+      if (handlePresence(payload)) {
+        return;
+      }
+
       if (payload.type === 'connected') {
-        console.log(`Connected as ${payload.user ?? 'anonymous'}`);
+        say(`Connected as ${payload.user ?? 'anonymous'}`);
         return;
       }
 
       if (payload.type === 'joined_room') {
-        console.log(`Joined room ${payload.room}`);
+        if (payload.room && payload.room !== state.room) {
+          return;
+        }
+
+        if (state.username && state.roomUsers.length === 0) {
+          setRoster([state.username]);
+        }
+
+        say(`Joined room ${payload.room ?? state.room ?? ''}`);
         return;
       }
 
       if (payload.type === 'message' && payload.message) {
-        state.messages.push(payload.message);
-        console.log(`[live] ${payload.message.sender}: ${payload.message.content}`);
+        const message = payload.message;
+        if (displayedMessageIds.has(message.id) || consumePendingEcho(message.content, message.sender)) {
+          displayedMessageIds.add(message.id);
+          return;
+        }
+
+        displayedMessageIds.add(message.id);
+        state.messages.push(message);
+        say(formatMessage(message));
         return;
       }
 
       if (payload.type === 'error') {
-        console.log(`Error: ${payload.message}`);
+        const detail = typeof payload.message === 'string' ? payload.message : payload.content;
+        say(`Error: ${detail ?? 'unknown error'}`);
       }
     });
     socketListenersRegistered = true;
@@ -79,138 +207,204 @@ function printConnectionStatus(): void {
   const lastError = ws.getLastError();
 
   if (status === 'open') {
-    console.log('WebSocket connected. Live room messaging is available.');
+    say('WebSocket connected. Live room messaging is available.');
     return;
   }
 
   if (status === 'connecting') {
-    console.log('WebSocket is still connecting...');
+    say('WebSocket is still connecting...');
     return;
   }
 
   if (status === 'error' && lastError) {
-    console.log(`WebSocket unavailable: ${lastError}`);
-    console.log('REST commands will still work, but live room messaging is disabled until the backend websocket endpoint is reachable.');
+    say(`WebSocket unavailable: ${lastError}`);
+    say('REST will still work, but live room messaging is disabled until the backend websocket endpoint is reachable.');
     return;
   }
 
-  console.log('WebSocket is not connected yet. Live room messaging will be unavailable until the backend websocket endpoint is reachable.');
+  say('WebSocket is not connected yet. Live room messaging will be unavailable until the backend websocket endpoint is reachable.');
 }
 
-async function run(): Promise<void> {
-  console.log('Hermes terminal client started. Type help to see commands.');
+async function ensureAuthenticated(): Promise<void> {
+  console.log('Hermes terminal client');
+  console.log(`Backend: ${state.baseUrl}`);
 
-  printConnectionStatus();
+  while (!state.token || !state.username) {
+    const choice = (await rl.question('Login (l) or register (r)? ')).trim().toLowerCase();
 
-  while (true) {
-    const inputLine = await rl.question('hermes> ');
-    const { command, args } = parseCommand(inputLine);
+    if (choice === 'quit' || choice === 'exit' || choice === '/quit' || choice === '/exit') {
+      shutdown();
+    }
+
+    if (choice !== 'l' && choice !== 'login' && choice !== 'r' && choice !== 'register') {
+      console.log('Enter l to login or r to register.');
+      continue;
+    }
+
+    const username = (await rl.question('Username: ')).trim();
+    if (!username) {
+      console.log('Username is required.');
+      continue;
+    }
+
+    const password = await questionPassword(rl, 'Password: ');
+    if (!password) {
+      console.log('Password is required.');
+      continue;
+    }
 
     try {
-      switch (command) {
-        case 'help':
-          printHelp();
-          break;
-        case 'health': {
-          const health = await api.health();
-          console.log(JSON.stringify(health, null, 2));
-          break;
-        }
-        case 'register': {
-          const [username, password] = args;
-          if (!username || !password) {
-            console.log('Usage: register <username> <password>');
-            break;
-          }
-          const response = await api.register(username, password);
-          state.username = response.user.username;
-          console.log(`Registered ${response.user.username}`);
-          break;
-        }
-        case 'login': {
-          const [username, password] = args;
-          if (!username || !password) {
-            console.log('Usage: login <username> <password>');
-            break;
-          }
-          const auth = await api.login(username, password);
-          state.username = auth.username;
-          state.token = auth.token;
-          console.log(`Logged in as ${auth.username}`);
-
-          try {
-            await connectWebSocket();
-            printConnectionStatus();
-          } catch (error) {
-            console.log(`WebSocket connection unavailable: ${error instanceof Error ? error.message : String(error)}`);
-          }
-          break;
-        }
-        case 'join': {
-          const [room] = args;
-          if (!room) {
-            console.log('Usage: join <room>');
-            break;
-          }
-          if (!state.username) {
-            console.log('Please login first.');
-            break;
-          }
-
-          try {
-            await connectWebSocket();
-          } catch (error) {
-            console.log(`Cannot join room yet. ${error instanceof Error ? error.message : String(error)}`);
-            break;
-          }
-
-          state.room = room;
-          await ws.joinRoom(room, state.username);
-          console.log(`Requested join for room ${room}`);
-          break;
-        }
-        case 'history': {
-          const [room] = args;
-          if (!room) {
-            console.log('Usage: history <room>');
-            break;
-          }
-          const messages = await api.listMessages(room);
-          state.messages = messages;
-          printMessages(messages);
-          break;
-        }
-        case 'send': {
-          const [messageText] = args;
-          if (!messageText) {
-            console.log('Usage: send <message>');
-            break;
-          }
-          if (!state.username || !state.room || !state.token) {
-            console.log('Please login, join a room, and ensure you have a token.');
-            break;
-          }
-          const message = await api.createMessage(state.room, state.username, messageText, state.token);
-          state.messages.push(message);
-          console.log(`Sent: ${message.content}`);
-          await ws.sendMessage(state.room, state.username, messageText);
-          break;
-        }
-        case 'messages':
-          printMessages(state.messages);
-          break;
-        case 'quit':
-        case 'exit':
-          rl.close();
-          ws.close();
-          process.exit(0);
-        default:
-          console.log('Unknown command. Type help for usage.');
+      if (choice === 'r' || choice === 'register') {
+        const response = await api.register(username, password);
+        console.log(`Registered ${response.user.username}`);
       }
+
+      const auth = await api.login(username, password);
+      state.username = auth.username;
+      state.token = auth.token;
+      console.log(`Logged in as ${auth.username}`);
     } catch (error) {
       console.log(`Error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+
+  try {
+    await connectWebSocket();
+    printConnectionStatus();
+  } catch (error) {
+    console.log(`WebSocket connection unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    console.log('You can still send and load history over REST.');
+  }
+}
+
+async function promptForRoom(): Promise<string> {
+  while (true) {
+    const room = (await rl.question('Room: ')).trim();
+    if (room) {
+      return room;
+    }
+
+    console.log('Room name is required.');
+  }
+}
+
+async function enterRoom(room: string): Promise<void> {
+  if (!state.username) {
+    say('Please login first.');
+    return;
+  }
+
+  state.room = room;
+  state.messages = [];
+  displayedMessageIds.clear();
+  pendingEchoes.length = 0;
+  setRoster(state.username ? [state.username] : []);
+
+  try {
+    await connectWebSocket();
+    await ws.joinRoom(room, state.username);
+  } catch (error) {
+    say(`Cannot join room over WebSocket. ${error instanceof Error ? error.message : String(error)}`);
+    say('Loading history over REST anyway.');
+  }
+
+  say(formatUsersLine());
+
+  try {
+    const messages = await api.listMessages(room);
+    state.messages = messages;
+    printMessages(messages);
+  } catch (error) {
+    say(`Could not load history: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  refreshPrompt();
+}
+
+async function sendChatMessage(text: string): Promise<void> {
+  if (!state.username || !state.room || !state.token) {
+    say('Please login, join a room, and ensure you have a token.');
+    return;
+  }
+
+  const message = await api.createMessage(state.room, state.username, text, state.token);
+  displayedMessageIds.add(message.id);
+  rememberPendingEcho(text);
+  state.messages.push(message);
+  say(formatMessage(message));
+
+  try {
+    await ws.sendMessage(state.room, state.username, text);
+  } catch (error) {
+    say(`Live send unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function shutdown(): never {
+  rl.close();
+  ws.close();
+  process.exit(0);
+}
+
+async function handleSlashCommand(command: string, args: string[]): Promise<void> {
+  switch (command) {
+    case 'help':
+      printHelp();
+      break;
+    case 'health': {
+      const health = await api.health();
+      say(JSON.stringify(health, null, 2));
+      break;
+    }
+    case 'join': {
+      const room = args[0];
+      if (!room) {
+        say('Usage: /join <room>');
+        break;
+      }
+      await enterRoom(room);
+      break;
+    }
+    case 'quit':
+    case 'exit':
+      shutdown();
+      break;
+    default:
+      say('Unknown command. Type /help for usage.');
+  }
+}
+
+async function runChatLoop(): Promise<void> {
+  inChat = true;
+  refreshPrompt();
+  printHelp();
+
+  while (true) {
+    const inputLine = await rl.question(chatPrompt());
+    const parsed = parseChatLine(inputLine);
+
+    try {
+      if (parsed.kind === 'empty') {
+        continue;
+      }
+
+      if (parsed.kind === 'message') {
+        await sendChatMessage(parsed.text);
+        continue;
+      }
+
+      await handleSlashCommand(parsed.command, parsed.args);
+    } catch (error) {
+      say(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+async function run(): Promise<void> {
+  await ensureAuthenticated();
+  const room = await promptForRoom();
+  await enterRoom(room);
+  await runChatLoop();
 }
 
 run().catch((error) => {

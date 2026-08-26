@@ -30,6 +30,7 @@ export interface ClientState {
   username: string | null;
   token: string | null;
   room: string | null;
+  roomUsers: string[];
   messages: MessageRecord[];
   baseUrl: string;
 }

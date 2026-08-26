@@ -5,6 +5,7 @@ export interface WsIncomingMessage {
   type: string;
   room?: string;
   user?: string;
+  users?: string[];
   message?: MessageRecord;
   content?: string;
   sender?: string;
