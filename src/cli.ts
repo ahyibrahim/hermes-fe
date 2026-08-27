@@ -20,7 +20,6 @@ const api = new HermesApi(state.baseUrl);
 const ws = new HermesWsClient(state.baseUrl);
 const rl = readline.createInterface({ input, output });
 const displayedMessageIds = new Set<number>();
-const pendingEchoes: Array<{ content: string; at: number }> = [];
 let inChat = false;
 let shuttingDown = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -87,25 +86,6 @@ function printMessages(messages: MessageRecord[]): void {
   }
 }
 
-function rememberPendingEcho(content: string): void {
-  pendingEchoes.push({ content, at: Date.now() });
-}
-
-function consumePendingEcho(content: string, sender: string): boolean {
-  if (sender !== state.username) {
-    return false;
-  }
-
-  const cutoff = Date.now() - 10_000;
-  const index = pendingEchoes.findIndex((entry) => entry.content === content && entry.at >= cutoff);
-  if (index === -1) {
-    return false;
-  }
-
-  pendingEchoes.splice(index, 1);
-  return true;
-}
-
 function roomMatches(payload: WsIncomingMessage): boolean {
   return payload.room === undefined || payload.room === state.room;
 }
@@ -157,13 +137,15 @@ function handlePresence(payload: WsIncomingMessage): boolean {
   return false;
 }
 
-function displayIncomingMessage(message: MessageRecord): void {
-  if (displayedMessageIds.has(message.id) || consumePendingEcho(message.content, message.sender)) {
+function displayMessage(message: MessageRecord): void {
+  if (message.id != null) {
+    if (displayedMessageIds.has(message.id)) {
+      return;
+    }
+
     displayedMessageIds.add(message.id);
-    return;
   }
 
-  displayedMessageIds.add(message.id);
   state.messages.push(message);
   say(formatMessage(message));
 }
@@ -193,7 +175,7 @@ function registerSocketHandlers(): void {
     }
 
     if (payload.type === 'message' && payload.message) {
-      displayIncomingMessage(payload.message);
+      displayMessage(payload.message);
       return;
     }
 
@@ -397,7 +379,6 @@ async function enterRoom(roomInput: string): Promise<void> {
   state.room = room;
   state.messages = [];
   displayedMessageIds.clear();
-  pendingEchoes.length = 0;
   setRoster(resolved.members.length > 0 ? resolved.members : state.username ? [state.username] : []);
 
   try {
@@ -432,10 +413,7 @@ async function sendChatMessage(text: string): Promise<void> {
   }
 
   const message = await api.createMessage(state.room, text, state.token);
-  displayedMessageIds.add(message.id);
-  rememberPendingEcho(text);
-  state.messages.push(message);
-  say(formatMessage(message));
+  displayMessage(message);
 }
 
 function shutdown(): never {
@@ -455,10 +433,7 @@ async function sendFile(filePath: string): Promise<void> {
   }
 
   const uploaded = await api.uploadFile(state.room, filePath, state.token);
-  displayedMessageIds.add(uploaded.message.id);
-  rememberPendingEcho(uploaded.message.content);
-  state.messages.push(uploaded.message);
-  say(formatMessage(uploaded.message));
+  displayMessage(uploaded.message);
   say(`Uploaded file ${uploaded.file.id}${uploaded.file.name || uploaded.file.filename ? ` (${uploaded.file.name ?? uploaded.file.filename})` : ''}.`);
 }
 
