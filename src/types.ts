@@ -18,6 +18,20 @@ export interface MessageRecord {
   sender: string;
   content: string;
   created_at: string;
+  file_id?: number | string | null;
+}
+
+export interface FileRecord {
+  id: number | string;
+  room?: string;
+  name?: string;
+  filename?: string;
+  size?: number;
+}
+
+export interface FileUploadResponse {
+  file: FileRecord;
+  message: MessageRecord;
 }
 
 export interface HealthResponse {

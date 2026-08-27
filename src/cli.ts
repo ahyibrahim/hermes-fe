@@ -21,8 +21,9 @@ const ws = new HermesWsClient(state.baseUrl);
 const rl = readline.createInterface({ input, output });
 const displayedMessageIds = new Set<number>();
 const pendingEchoes: Array<{ content: string; at: number }> = [];
-let socketListenersRegistered = false;
 let inChat = false;
+let shuttingDown = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 function say(line: string): void {
   if (inChat) {
@@ -57,16 +58,19 @@ function formatUsersLine(): string {
 }
 
 function formatMessage(message: MessageRecord): string {
-  return `[${message.created_at}] ${message.sender}: ${message.content}`;
+  const fileSuffix = message.file_id == null || message.file_id === '' ? '' : ` [file ${message.file_id}]`;
+  return `[${message.created_at}] ${message.sender}: ${message.content}${fileSuffix}`;
 }
 
 function printHelp(): void {
   say(`
 Slash commands:
-  /help              Show this help
-  /health            Check backend health
-  /join <room>       Switch room, reload users and history
-  /quit              Exit the client
+  /help                 Show this help
+  /health               Check backend health
+  /join <room>          Switch room, reload users and history
+  /sendfile <path>      Upload a file to the current room
+  /getfile <id> [path]  Download a file by id
+  /quit                 Exit the client
 Type a message and press Enter to send.
 `);
 }
@@ -153,53 +157,91 @@ function handlePresence(payload: WsIncomingMessage): boolean {
   return false;
 }
 
-async function connectWebSocket(): Promise<void> {
-  if (!socketListenersRegistered) {
-    ws.onMessage((payload) => {
-      if (handlePresence(payload)) {
-        return;
-      }
-
-      if (payload.type === 'connected') {
-        say(`Connected as ${payload.user ?? 'anonymous'}`);
-        return;
-      }
-
-      if (payload.type === 'joined_room') {
-        if (payload.room && payload.room !== state.room) {
-          return;
-        }
-
-        if (state.username && state.roomUsers.length === 0) {
-          setRoster([state.username]);
-        }
-
-        say(`Joined room ${payload.room ?? state.room ?? ''}`);
-        return;
-      }
-
-      if (payload.type === 'message' && payload.message) {
-        const message = payload.message;
-        if (displayedMessageIds.has(message.id) || consumePendingEcho(message.content, message.sender)) {
-          displayedMessageIds.add(message.id);
-          return;
-        }
-
-        displayedMessageIds.add(message.id);
-        state.messages.push(message);
-        say(formatMessage(message));
-        return;
-      }
-
-      if (payload.type === 'error') {
-        const detail = typeof payload.message === 'string' ? payload.message : payload.content;
-        say(`Error: ${detail ?? 'unknown error'}`);
-      }
-    });
-    socketListenersRegistered = true;
+function displayIncomingMessage(message: MessageRecord): void {
+  if (displayedMessageIds.has(message.id) || consumePendingEcho(message.content, message.sender)) {
+    displayedMessageIds.add(message.id);
+    return;
   }
 
-  await ws.connect();
+  displayedMessageIds.add(message.id);
+  state.messages.push(message);
+  say(formatMessage(message));
+}
+
+function registerSocketHandlers(): void {
+  ws.onMessage((payload) => {
+    if (handlePresence(payload)) {
+      return;
+    }
+
+    if (payload.type === 'connected') {
+      say(`Connected as ${payload.user ?? 'anonymous'}`);
+      return;
+    }
+
+    if (payload.type === 'joined_room') {
+      if (payload.room && payload.room !== state.room) {
+        return;
+      }
+
+      if (state.username && state.roomUsers.length === 0) {
+        setRoster([state.username]);
+      }
+
+      say(`Joined room ${payload.room ?? state.room ?? ''}`);
+      return;
+    }
+
+    if (payload.type === 'message' && payload.message) {
+      displayIncomingMessage(payload.message);
+      return;
+    }
+
+    if (payload.type === 'error') {
+      say(`Error: ${payload.content ?? (typeof payload.message === 'string' ? payload.message : 'unknown error')}`);
+    }
+  });
+
+  ws.onOpen(() => {
+    refreshPrompt();
+    if (state.room) {
+      ws.joinRoom(state.room).catch((error) => {
+        say(`Could not rejoin room over WebSocket: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+  });
+
+  ws.onClose((info) => {
+    refreshPrompt();
+    if (info.status === 401) {
+      say('WebSocket rejected (401). Live updates are offline until a valid login token is sent on the handshake.');
+      return;
+    }
+
+    say('WebSocket disconnected. Live updates paused; REST still works.');
+
+    if (shuttingDown || !state.token) {
+      return;
+    }
+
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+    }
+
+    reconnectTimer = setTimeout(() => {
+      connectWebSocket().catch((error) => {
+        say(`WebSocket reconnect failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }, 1500);
+  });
+}
+
+async function connectWebSocket(): Promise<void> {
+  if (!state.token) {
+    throw new Error('Login before connecting WebSocket.');
+  }
+
+  await ws.connect(state.token);
 }
 
 function printConnectionStatus(): void {
@@ -360,7 +402,7 @@ async function enterRoom(roomInput: string): Promise<void> {
 
   try {
     await connectWebSocket();
-    await ws.joinRoom(room, state.username);
+    await ws.joinRoom(room);
   } catch (error) {
     say(`Cannot join room over WebSocket. ${error instanceof Error ? error.message : String(error)}`);
     say('Loading history over REST anyway.');
@@ -389,26 +431,49 @@ async function sendChatMessage(text: string): Promise<void> {
     return;
   }
 
-  const message = await api.createMessage(state.room, state.username, text, state.token);
+  const message = await api.createMessage(state.room, text, state.token);
   displayedMessageIds.add(message.id);
   rememberPendingEcho(text);
   state.messages.push(message);
   say(formatMessage(message));
-
-  try {
-    await ws.sendMessage(state.room, state.username, text);
-  } catch (error) {
-    say(`Live send unavailable: ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 function shutdown(): never {
+  shuttingDown = true;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+  }
   rl.close();
   ws.close();
   process.exit(0);
 }
 
-async function handleSlashCommand(command: string, args: string[]): Promise<void> {
+async function sendFile(filePath: string): Promise<void> {
+  if (!state.room || !state.token) {
+    say('Please login and join a room first.');
+    return;
+  }
+
+  const uploaded = await api.uploadFile(state.room, filePath, state.token);
+  displayedMessageIds.add(uploaded.message.id);
+  rememberPendingEcho(uploaded.message.content);
+  state.messages.push(uploaded.message);
+  say(formatMessage(uploaded.message));
+  say(`Uploaded file ${uploaded.file.id}${uploaded.file.name || uploaded.file.filename ? ` (${uploaded.file.name ?? uploaded.file.filename})` : ''}.`);
+}
+
+async function getFile(fileId: string, destination?: string): Promise<void> {
+  if (!state.token) {
+    say('Please login first.');
+    return;
+  }
+
+  const path = destination || `file-${fileId}`;
+  const saved = await api.downloadFile(fileId, path, state.token);
+  say(`Saved file ${fileId} to ${saved}`);
+}
+
+async function handleSlashCommand(command: string, args: string[], rest: string): Promise<void> {
   switch (command) {
     case 'help':
       printHelp();
@@ -425,6 +490,24 @@ async function handleSlashCommand(command: string, args: string[]): Promise<void
         break;
       }
       await enterRoom(room);
+      break;
+    }
+    case 'sendfile': {
+      const filePath = rest;
+      if (!filePath) {
+        say('Usage: /sendfile <path>');
+        break;
+      }
+      await sendFile(filePath);
+      break;
+    }
+    case 'getfile': {
+      const fileId = args[0];
+      if (!fileId) {
+        say('Usage: /getfile <id> [path]');
+        break;
+      }
+      await getFile(fileId, args[1]);
       break;
     }
     case 'quit':
@@ -455,12 +538,14 @@ async function runChatLoop(): Promise<void> {
         continue;
       }
 
-      await handleSlashCommand(parsed.command, parsed.args);
+      await handleSlashCommand(parsed.command, parsed.args, parsed.rest);
     } catch (error) {
       say(`Error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
+
+registerSocketHandlers();
 
 async function run(): Promise<void> {
   await ensureAuthenticated();
