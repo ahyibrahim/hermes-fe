@@ -1,0 +1,33 @@
+# Security boundary: this workflow must always run on GitHub-hosted
+# `ubuntu-latest`. It must never be moved to the self-hosted runner introduced
+# in v0.5.0. This repository is public, so a `pull_request` trigger on a
+# self-hosted runner would let anyone with a fork execute arbitrary code on the
+# deploy host. Recorded as ADR 0002 in the hermes-be repository.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18, 20]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm test
