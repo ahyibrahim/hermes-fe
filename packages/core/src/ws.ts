@@ -1,5 +1,5 @@
-import { WebSocket } from 'ws';
-import { IncomingMessage } from 'node:http';
+import { SOCKET_OPEN, SocketCloseInfo, SocketHandle, TransportAdapter } from './adapters.js';
+import { AuthError } from './errors.js';
 import { MessageRecord } from './types.js';
 
 export interface WsIncomingMessage {
@@ -16,16 +16,20 @@ export interface WsIncomingMessage {
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 
 export class HermesWsClient {
-  private socket: WebSocket | null = null;
+  private socket: SocketHandle | null = null;
   private readonly messageListeners: Array<(message: WsIncomingMessage) => void> = [];
   private readonly openListeners: Array<() => void> = [];
-  private readonly closeListeners: Array<(info: { code?: number; reason?: string; status?: number }) => void> = [];
+  private readonly closeListeners: Array<(info: SocketCloseInfo) => void> = [];
   private status: ConnectionStatus = 'idle';
   private lastError: Error | null = null;
   private connectPromise: Promise<void> | null = null;
   private token: string | null = null;
+  private closedByUs = false;
 
-  constructor(private readonly baseUrl: string) {}
+  constructor(
+    private readonly baseUrl: string,
+    private readonly transport: TransportAdapter
+  ) {}
 
   connect(token: string): Promise<void> {
     this.token = token;
@@ -40,15 +44,15 @@ export class HermesWsClient {
 
     this.status = 'connecting';
     this.lastError = null;
+    this.closedByUs = false;
 
     this.connectPromise = new Promise((resolve, reject) => {
       const socketUrl = `${this.toSocketUrl(this.baseUrl)}/ws?token=${encodeURIComponent(token)}`;
       let handshakeStatus: number | undefined;
+      let settled = false;
 
       try {
-        this.socket = new WebSocket(socketUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        this.socket = this.transport.open(socketUrl, token);
       } catch (error) {
         this.status = 'error';
         this.lastError = error instanceof Error ? error : new Error(String(error));
@@ -59,44 +63,51 @@ export class HermesWsClient {
 
       this.attachSocketListeners(this.socket);
 
-      this.socket.on('unexpected-response', (_req, response: IncomingMessage) => {
-        handshakeStatus = response.statusCode;
-        const message = `WebSocket handshake failed: ${response.statusCode ?? 'unknown'}`;
-        this.status = 'error';
-        this.lastError = new Error(message);
-        this.connectPromise = null;
-        response.resume();
-        reject(this.lastError);
-        this.closeListeners.forEach((listener) => listener({ status: handshakeStatus }));
-      });
-
-      this.socket.on('open', () => {
+      this.socket.onOpen(() => {
         this.status = 'open';
+        settled = true;
         resolve();
         this.connectPromise = null;
         this.openListeners.forEach((listener) => listener());
       });
 
-      this.socket.on('error', (error) => {
-        if (this.status !== 'open') {
-          this.status = 'error';
-          this.lastError = error instanceof Error ? error : new Error(String(error));
-          reject(this.lastError);
-          this.connectPromise = null;
+      this.socket.onError((error) => {
+        if (this.status === 'open' || settled) {
+          return;
         }
+
+        const authError = /401/.test(error.message)
+          ? new AuthError('WebSocket handshake failed: 401')
+          : error;
+        this.status = 'error';
+        this.lastError = authError;
+        settled = true;
+        reject(authError);
+        this.connectPromise = null;
       });
 
-      this.socket.on('close', (code, reason) => {
+      this.socket.onClose((info) => {
+        if (this.closedByUs) {
+          return;
+        }
+
+        handshakeStatus = info.status ?? handshakeStatus;
         const wasOpen = this.status === 'open';
         this.status = handshakeStatus === 401 ? 'error' : 'closed';
         if (handshakeStatus === 401 && !this.lastError) {
-          this.lastError = new Error('WebSocket handshake failed: 401');
+          this.lastError = new AuthError('WebSocket handshake failed: 401');
         }
         this.socket = null;
         this.connectPromise = null;
+
+        if (!settled) {
+          settled = true;
+          reject(this.lastError ?? new Error('WebSocket closed during handshake'));
+        }
+
         if (wasOpen || handshakeStatus) {
           this.closeListeners.forEach((listener) =>
-            listener({ code, reason: reason.toString(), status: handshakeStatus })
+            listener({ ...info, status: handshakeStatus })
           );
         }
       });
@@ -108,10 +119,10 @@ export class HermesWsClient {
     });
   }
 
-  private attachSocketListeners(socket: WebSocket): void {
-    socket.on('message', (data) => {
+  private attachSocketListeners(socket: SocketHandle): void {
+    socket.onMessage((data) => {
       try {
-        const payload = JSON.parse(data.toString()) as WsIncomingMessage;
+        const payload = JSON.parse(data) as WsIncomingMessage;
         this.messageListeners.forEach((listener) => listener(payload));
       } catch {
         this.messageListeners.forEach((listener) =>
@@ -130,7 +141,7 @@ export class HermesWsClient {
   }
 
   isConnected(): boolean {
-    return this.status === 'open' && this.socket !== null && this.socket.readyState === WebSocket.OPEN;
+    return this.status === 'open' && this.socket !== null && this.socket.readyState === SOCKET_OPEN;
   }
 
   onMessage(listener: (message: WsIncomingMessage) => void): void {
@@ -141,7 +152,7 @@ export class HermesWsClient {
     this.openListeners.push(listener);
   }
 
-  onClose(listener: (info: { code?: number; reason?: string; status?: number }) => void): void {
+  onClose(listener: (info: SocketCloseInfo) => void): void {
     this.closeListeners.push(listener);
   }
 
@@ -178,6 +189,7 @@ export class HermesWsClient {
   }
 
   close(): void {
+    this.closedByUs = true;
     this.socket?.close();
     this.socket = null;
     this.status = 'closed';

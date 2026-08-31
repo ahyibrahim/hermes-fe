@@ -1,21 +1,34 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { FileIOAdapter } from './adapters.js';
+import { AuthError } from './errors.js';
 import { AuthResponse, FileUploadResponse, HealthResponse, MessageRecord, RegisterResponse, RoomRecord } from './types.js';
 
 export class HermesApi {
-  constructor(private readonly baseUrl: string) {}
+  constructor(
+    private readonly baseUrl: string,
+    private readonly files: FileIOAdapter
+  ) {}
 
   private authHeaders(token: string): Record<string, string> {
     return { Authorization: `Bearer ${token}` };
   }
 
-  async health(): Promise<HealthResponse> {
-    const response = await fetch(`${this.baseUrl}/health`);
-    if (!response.ok) {
-      throw new Error(`Health check failed: ${response.status}`);
+  private async readJson<T>(response: Response, action: string, treat401AsAuthError: boolean): Promise<T> {
+    if (response.status === 401 && treat401AsAuthError) {
+      const text = await response.text();
+      throw new AuthError(`${action} failed: 401 ${text}`.trim());
     }
 
-    return response.json() as Promise<HealthResponse>;
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`${action} failed: ${response.status} ${text}`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  async health(): Promise<HealthResponse> {
+    const response = await fetch(`${this.baseUrl}/health`);
+    return this.readJson<HealthResponse>(response, 'Health check', false);
   }
 
   async register(username: string, password: string): Promise<RegisterResponse> {
@@ -25,12 +38,7 @@ export class HermesApi {
       body: JSON.stringify({ username, password }),
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Register failed: ${response.status} ${text}`);
-    }
-
-    return response.json() as Promise<RegisterResponse>;
+    return this.readJson<RegisterResponse>(response, 'Register', false);
   }
 
   async login(username: string, password: string): Promise<AuthResponse> {
@@ -40,36 +48,21 @@ export class HermesApi {
       body: JSON.stringify({ username, password }),
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Login failed: ${response.status} ${text}`);
-    }
-
-    return response.json() as Promise<AuthResponse>;
+    return this.readJson<AuthResponse>(response, 'Login', false);
   }
 
   async listRooms(token: string): Promise<RoomRecord[]> {
     const response = await fetch(`${this.baseUrl}/rooms`, {
       headers: this.authHeaders(token),
     });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`List rooms failed: ${response.status} ${text}`);
-    }
-
-    return response.json() as Promise<RoomRecord[]>;
+    return this.readJson<RoomRecord[]>(response, 'List rooms', true);
   }
 
   async listMessages(room: string, token: string): Promise<MessageRecord[]> {
     const response = await fetch(`${this.baseUrl}/messages?room=${encodeURIComponent(room)}`, {
       headers: this.authHeaders(token),
     });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`List messages failed: ${response.status} ${text}`);
-    }
-
-    return response.json() as Promise<MessageRecord[]>;
+    return this.readJson<MessageRecord[]>(response, 'List messages', true);
   }
 
   async createMessage(room: string, content: string, token: string): Promise<MessageRecord> {
@@ -78,20 +71,14 @@ export class HermesApi {
       headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
       body: JSON.stringify({ room, content }),
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Create message failed: ${response.status} ${text}`);
-    }
-
-    return response.json() as Promise<MessageRecord>;
+    return this.readJson<MessageRecord>(response, 'Create message', true);
   }
 
   async uploadFile(room: string, filePath: string, token: string): Promise<FileUploadResponse> {
-    const bytes = await readFile(filePath);
+    const bytes = await this.files.readFile(filePath);
     const form = new FormData();
     form.append('room', room);
-    form.append('file', new Blob([new Uint8Array(bytes)]), basename(filePath));
+    form.append('file', new Blob([new Uint8Array(bytes)]), this.files.basename(filePath));
 
     const response = await fetch(`${this.baseUrl}/files`, {
       method: 'POST',
@@ -99,12 +86,7 @@ export class HermesApi {
       body: form,
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Upload file failed: ${response.status} ${text}`);
-    }
-
-    return response.json() as Promise<FileUploadResponse>;
+    return this.readJson<FileUploadResponse>(response, 'Upload file', true);
   }
 
   async downloadFile(fileId: string, destination: string, token: string): Promise<string> {
@@ -112,13 +94,18 @@ export class HermesApi {
       headers: this.authHeaders(token),
     });
 
+    if (response.status === 401) {
+      const text = await response.text();
+      throw new AuthError(`Download file failed: 401 ${text}`.trim());
+    }
+
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`Download file failed: ${response.status} ${text}`);
     }
 
-    const bytes = Buffer.from(await response.arrayBuffer());
-    await writeFile(destination, bytes);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    await this.files.writeFile(destination, bytes);
     return destination;
   }
 }
