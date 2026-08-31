@@ -1,12 +1,12 @@
 {
   "name": "hermes-fe",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/cli.js",
-    "test": "npm run build && node dist/commands.test.js"
+    "test": "npm run build && node --test dist/"
   },
   "dependencies": {
     "ws": "^8.18.0"

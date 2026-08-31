@@ -271,7 +271,7 @@ async function ensureAuthenticated(): Promise<void> {
       continue;
     }
 
-    const password = await questionPassword(rl, 'Password: ');
+    const password = await questionPassword(rl, 'Password: ', { input, output, onCancel: () => shutdown() });
     if (!password) {
       console.log('Password is required.');
       continue;
