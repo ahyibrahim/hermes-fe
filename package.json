@@ -1,15 +1,21 @@
 {
   "name": "hermes-fe",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/cli.js",
-    "test": "npm run build && node --test dist/"
-  },
-  "dependencies": {
-    "ws": "^8.18.0"
+    "build": "npm run build --workspace @hermes/core && npm run build --workspace @hermes/cli",
+    "clean": "npm run clean --workspaces --if-present",
+    "test": "npm run build && npm run test:core && npm run test:cli && npm run check:browser-safe",
+    "test:core": "node --test packages/core/dist/",
+    "test:cli": "node --test apps/cli/dist/",
+    "check:browser-safe": "node scripts/check-core-imports.mjs",
+    "smoke": "npm run build && node scripts/smoke-cli.mjs",
+    "start": "node apps/cli/dist/cli.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
