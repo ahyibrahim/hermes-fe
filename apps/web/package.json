@@ -1,6 +1,6 @@
 {
   "name": "@hermes/web",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Hermes web UI. A static SvelteKit SPA served by hermes-be.",
@@ -13,7 +13,7 @@
     "clean": "node -e \"const fs=require('fs'); for (const p of ['build','.svelte-kit']) { fs.rmSync(p,{recursive:true,force:true}); }\""
   },
   "dependencies": {
-    "@hermes/core": "^0.4.0"
+    "@hermes/core": "^0.6.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "3.0.8",

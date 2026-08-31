@@ -12,6 +12,7 @@ export default defineConfig({
       '/rooms': { target: proxyTarget, changeOrigin: true },
       '/messages': { target: proxyTarget, changeOrigin: true },
       '/files': { target: proxyTarget, changeOrigin: true },
+      '/users': { target: proxyTarget, changeOrigin: true },
       '/ws': { target: proxyTarget, ws: true, changeOrigin: true },
     },
   },

@@ -2,7 +2,7 @@
 
 Clients for **Hermes**, a private messenger for a small group of friends. It runs on the local network and over Tailscale, and talks to the [hermes-be](https://github.com/ahyibrahim/hermes-be) backend (one Node process, Fastify, SQLite).
 
-This repository is an npm workspaces monorepo. v0.4.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA).
+This repository is an npm workspaces monorepo. v0.6.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with room creation, DMs, and a user directory).
 
 ## Requirements
 
@@ -26,7 +26,7 @@ npm run build
 
 ## Web UI
 
-A cheap Discord-shaped layout: rooms on the left, messages and composer in the middle, people on the right. It follows OS light/dark via `prefers-color-scheme`. There is no extra server/guild rail — Hermes has rooms, not guilds.
+A cheap Discord-shaped layout: rooms on the left (create a group with the field at the bottom; DMs show as `@name`), messages and composer in the middle, people on the right (click someone to open a DM). It follows OS light/dark via `prefers-color-scheme`. There is no extra server/guild rail — Hermes has rooms, not guilds.
 
 ### Development
 
@@ -36,7 +36,7 @@ Start hermes-be first (see that repo's README). Then:
 npm run dev:web
 ```
 
-That is `vite dev --host` in `apps/web`. The API base URL is empty (same origin as the Vite dev server). Vite proxies `/health`, `/auth`, `/rooms`, `/messages`, `/files`, and `/ws` to `http://ying-1:3000` by default — that is **production** on this host. For a local backend:
+That is `vite dev --host` in `apps/web`. The API base URL is empty (same origin as the Vite dev server). Vite proxies `/health`, `/auth`, `/rooms`, `/messages`, `/files`, `/users`, and `/ws` to `http://ying-1:3000` by default — that is **production** on this host. For a local backend:
 
 ```sh
 VITE_HERMES_PROXY_TARGET=http://127.0.0.1:3000 npm run dev:web
@@ -94,10 +94,10 @@ npm run build
 cd /home/ai/Workspace/hermes-be
 sudo ./scripts/setup-host.sh p1    # once, if /etc/hermes/p1.env does not exist
 sudo HERMES_WEB_BUNDLE=/home/ai/Workspace/hermes-fe/apps/web/build \
-  ./scripts/deploy.sh p1 v0.4.0
+  ./scripts/deploy.sh p1 v0.6.0
 ```
 
-`deploy.sh` checks the hermes-be **tag** out of GitHub, not this working tree. Merge the PRs and push `v0.4.0` on both remotes before that command. Pushing a tag does not deploy by itself.
+`deploy.sh` checks the hermes-be **tag** out of GitHub, not this working tree. Merge the PRs and push `v0.6.0` on both remotes before that command. Pushing a tag does not deploy by itself. Rehearse the membership migration on `s1` first — see the hermes-be deploy runbook.
 
 ## CLI
 
@@ -183,4 +183,4 @@ npm run dev:web
 
 ## Roadmap
 
-v0.4.0 is the web UI MVP. Room/DM creation UI is v0.6.0, profiles v0.7.0, voice v0.8.0. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
+v0.6.0 adds room and DM creation in the web UI. Profiles are v0.7.0, voice v0.8.0. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).

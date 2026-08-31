@@ -228,8 +228,82 @@ button {
   margin-right: 0.15rem;
 }
 
+.new-room {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.new-room input {
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--bg-input);
+}
+
+.new-room button {
+  border: 0;
+  border-radius: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.new-room button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .people-list li {
-  padding: 0.3rem 0.55rem;
+  padding: 0;
+}
+
+.people-list button,
+.people-list .self {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 0.35rem;
+  padding: 0.4rem 0.55rem;
+  color: var(--text);
+}
+
+.people-list button:hover {
+  background: var(--bg-hover);
+}
+
+.people-list button.active {
+  background: var(--bg-active);
+  font-weight: 600;
+}
+
+.people-list .self {
+  color: var(--text-muted);
+}
+
+.people-list .you {
+  margin-left: auto;
+  font-size: 0.75rem;
+  text-transform: lowercase;
+}
+
+.people-list .status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex-shrink: 0;
+  background: var(--status-closed);
+}
+
+.people-list .status-dot.open {
+  background: var(--status-open);
 }
 
 .empty-hint {

@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
-import { MessageRecord, RoomRecord } from '../types.js';
+import { MessageRecord, PublicUser, RoomRecord } from '../types.js';
 
 export interface FakeBackend {
   baseUrl: string;
@@ -11,6 +11,11 @@ export interface FakeBackend {
   revokeToken(token: string): void;
   dropConnections(): void;
   seedUser(username: string, password: string): void;
+}
+
+interface StoredUser {
+  id: number;
+  password: string;
 }
 
 interface RoomState extends RoomRecord {
@@ -103,10 +108,10 @@ function parseMultipart(
 }
 
 export async function startFakeBackend(): Promise<FakeBackend> {
-  const users = new Map<string, string>();
+  const users = new Map<string, StoredUser>();
   const tokens = new Map<string, string>();
   const rooms = new Map<string, RoomState>([
-    ['general', { id: 1, slug: 'general', name: 'General', members: [] }],
+    ['general', { id: 1, slug: 'general', name: 'General', type: 'group', members: [] }],
   ]);
   const messages: MessageRecord[] = [];
   const files = new Map<number, StoredFile>();
@@ -114,11 +119,34 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   let nextMessageId = 1;
   let nextFileId = 1;
   let nextToken = 1;
+  let nextUserId = 1;
+  let nextRoomId = 2;
   let joinCount = 0;
 
   const connectedUsers = (room: string): string[] => [
     ...new Set([...clients].filter((client) => client.room === room).map((client) => client.user)),
   ];
+
+  const addToGeneral = (username: string): void => {
+    const general = rooms.get('general');
+    if (general && !general.members.includes(username)) {
+      general.members.push(username);
+    }
+  };
+
+  const usernameById = (id: number): string | undefined => {
+    for (const [username, user] of users) {
+      if (user.id === id) {
+        return username;
+      }
+    }
+    return undefined;
+  };
+
+  const publicUsers = (): PublicUser[] =>
+    [...users.entries()]
+      .map(([username, user]) => ({ id: user.id, username }))
+      .sort((a, b) => a.username.localeCompare(b.username));
 
   const broadcast = (room: string, payload: unknown, except?: WebSocket): void => {
     const data = JSON.stringify(payload);
@@ -165,8 +193,9 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 409, { error: 'username already exists' });
           return;
         }
-        users.set(username, password);
-        sendJson(res, 200, { user: { id: users.size, username } });
+        users.set(username, { id: nextUserId++, password });
+        addToGeneral(username);
+        sendJson(res, 200, { user: { id: users.get(username)?.id, username } });
         return;
       }
 
@@ -174,13 +203,48 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         const body = JSON.parse((await readBody(req)).toString()) as { username?: string; password?: string };
         const username = body.username?.trim().toLowerCase() ?? '';
         const password = body.password ?? '';
-        if (users.get(username) !== password) {
+        if (users.get(username)?.password !== password) {
           sendJson(res, 401, { error: 'invalid credentials' });
           return;
         }
         const token = `tok-${nextToken++}`;
         tokens.set(token, username);
         sendJson(res, 200, { username, token });
+        return;
+      }
+
+      if (method === 'POST' && url.pathname === '/auth/logout') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const token = bearerToken(req);
+        if (token) {
+          tokens.delete(token);
+        }
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (method === 'GET' && url.pathname === '/users') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        sendJson(res, 200, publicUsers());
+        return;
+      }
+
+      if (method === 'GET' && url.pathname === '/users/online') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        sendJson(
+          res,
+          200,
+          [...new Set([...clients].map((client) => client.user))].sort((a, b) => a.localeCompare(b))
+        );
         return;
       }
 
@@ -192,13 +256,111 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         sendJson(
           res,
           200,
-          [...rooms.values()].map((room) => ({
-            id: room.id,
-            slug: room.slug,
-            name: room.name,
-            members: [...new Set([...room.members, ...connectedUsers(room.slug)])],
-          }))
+          [...rooms.values()]
+            .filter((room) => room.members.includes(username))
+            .map((room) => ({
+              id: room.id,
+              slug: room.slug,
+              name: room.name,
+              type: room.type ?? 'group',
+              members: [...new Set([...room.members, ...connectedUsers(room.slug)])],
+            }))
         );
+        return;
+      }
+
+      if (method === 'POST' && url.pathname === '/rooms') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as { name?: string; members?: unknown };
+        const name = body.name?.trim() ?? '';
+        if (!name) {
+          sendJson(res, 400, { error: 'name is required' });
+          return;
+        }
+        const creator = users.get(username);
+        if (!creator) {
+          sendJson(res, 401, { error: 'authentication required' });
+          return;
+        }
+        const memberIds = Array.isArray(body.members)
+          ? body.members.filter((id): id is number => typeof id === 'number' && Number.isInteger(id))
+          : [];
+        const members = new Set<string>([username]);
+        for (const id of memberIds) {
+          const member = usernameById(id);
+          if (member) {
+            members.add(member);
+          }
+        }
+        const slug = `group:${name.toLowerCase().replace(/\s+/g, '-')}:${Date.now()}`;
+        const room: RoomState = {
+          id: nextRoomId++,
+          slug,
+          name,
+          type: 'group',
+          members: [...members],
+        };
+        rooms.set(slug, room);
+        sendJson(res, 200, {
+          id: room.id,
+          slug: room.slug,
+          name: room.name,
+          type: room.type,
+          members: room.members,
+        });
+        return;
+      }
+
+      if (method === 'POST' && url.pathname === '/rooms/dm') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as { userId?: unknown };
+        if (typeof body.userId !== 'number' || !Number.isInteger(body.userId)) {
+          sendJson(res, 400, { error: 'userId is required' });
+          return;
+        }
+        const other = usernameById(body.userId);
+        if (!other) {
+          sendJson(res, 400, { error: 'both users must exist' });
+          return;
+        }
+        if (other === username) {
+          sendJson(res, 400, { error: 'cannot DM yourself' });
+          return;
+        }
+        const pair = [username, other].sort((a, b) => a.localeCompare(b));
+        const slug = `dm:${pair[0]}:${pair[1]}`;
+        const existing = rooms.get(slug);
+        if (existing) {
+          sendJson(res, 200, {
+            id: existing.id,
+            slug: existing.slug,
+            name: existing.name,
+            type: existing.type ?? 'dm',
+            members: existing.members,
+          });
+          return;
+        }
+        const room: RoomState = {
+          id: nextRoomId++,
+          slug,
+          name: pair.join(', '),
+          type: 'dm',
+          members: pair,
+        };
+        rooms.set(slug, room);
+        sendJson(res, 200, {
+          id: room.id,
+          slug: room.slug,
+          name: room.name,
+          type: room.type,
+          members: room.members,
+        });
         return;
       }
 
@@ -227,9 +389,10 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         const room = rooms.get(body.room) ?? {
-          id: rooms.size + 1,
+          id: nextRoomId++,
           slug: body.room,
           name: body.room,
+          type: 'group',
           members: [],
         };
         rooms.set(room.slug, room);
@@ -355,9 +518,10 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         }
 
         const room = rooms.get(roomSlug) ?? {
-          id: rooms.size + 1,
+          id: nextRoomId++,
           slug: roomSlug,
           name: roomSlug,
+          type: 'group',
           members: [],
         };
         rooms.set(room.slug, room);
@@ -390,7 +554,16 @@ export async function startFakeBackend(): Promise<FakeBackend> {
       return joinCount;
     },
     seedUser(username: string, password: string) {
-      users.set(username.trim().toLowerCase(), password);
+      const name = username.trim().toLowerCase();
+      if (!users.has(name)) {
+        users.set(name, { id: nextUserId++, password });
+      } else {
+        const existing = users.get(name);
+        if (existing) {
+          existing.password = password;
+        }
+      }
+      addToGeneral(name);
     },
     revokeToken(token: string) {
       tokens.delete(token);

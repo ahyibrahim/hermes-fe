@@ -2,7 +2,14 @@ import { TokenStorageAdapter } from './adapters.js';
 import { AuthError } from './errors.js';
 import { HermesApi } from './api.js';
 import { resolveRoom } from './resolve-room.js';
-import { ClientState, HealthResponse, MessageRecord, RegisterResponse, RoomRecord } from './types.js';
+import {
+  ClientState,
+  HealthResponse,
+  MessageRecord,
+  PublicUser,
+  RegisterResponse,
+  RoomRecord,
+} from './types.js';
 import { ConnectionStatus, HermesWsClient, WsIncomingMessage } from './ws.js';
 
 export type SessionEventMap = {
@@ -161,6 +168,68 @@ export class SessionController {
       });
       return [];
     }
+  }
+
+  async listUsers(): Promise<PublicUser[]> {
+    if (!this.state.token) {
+      return [];
+    }
+
+    try {
+      return await this.withAuth('rest', () => this.api.listUsers(this.state.token as string));
+    } catch (error) {
+      if (error instanceof AuthError) {
+        throw error;
+      }
+      this.emit('error', {
+        message: `Could not list users: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      return [];
+    }
+  }
+
+  async listOnlineUsers(): Promise<string[]> {
+    if (!this.state.token) {
+      return [];
+    }
+
+    try {
+      return await this.withAuth('rest', () => this.api.listOnlineUsers(this.state.token as string));
+    } catch (error) {
+      if (error instanceof AuthError) {
+        throw error;
+      }
+      this.emit('error', {
+        message: `Could not list online users: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      return [];
+    }
+  }
+
+  async createRoom(name: string, memberIds: number[] = []): Promise<RoomRecord> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.createRoom(name, memberIds, this.state.token as string));
+  }
+
+  async createDm(userId: number): Promise<RoomRecord> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.createDm(userId, this.state.token as string));
+  }
+
+  async logout(): Promise<void> {
+    const token = this.state.token;
+    if (token) {
+      try {
+        await this.api.logout(token);
+      } catch {
+        // Still drop the local session even if the server already rejected the token.
+      }
+    }
+    await this.clearSession('rest');
   }
 
   async health(): Promise<HealthResponse> {
