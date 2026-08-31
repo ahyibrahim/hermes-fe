@@ -74,6 +74,101 @@ export class MemoryFileIO implements FileIOAdapter {
   }
 }
 
+export interface StorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+export const LOCAL_STORAGE_SESSION_KEY = 'hermes.session';
+
+function tryLocalStorage(): StorageLike | null {
+  try {
+    const storage = (globalThis as { localStorage?: StorageLike }).localStorage;
+    return storage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredSession(raw: string): StoredSession | null {
+  try {
+    const parsed = JSON.parse(raw) as { username?: unknown; token?: unknown };
+    if (typeof parsed.username === 'string' && parsed.username && typeof parsed.token === 'string' && parsed.token) {
+      return { username: parsed.username, token: parsed.token };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Browser token store. `localStorage` is read behind a guard so this module
+ * stays importable in Node (tests, SSR-less Vite transforms).
+ */
+export class LocalStorageTokenStore implements TokenStorageAdapter {
+  constructor(
+    private readonly key: string = LOCAL_STORAGE_SESSION_KEY,
+    private readonly storage: StorageLike | null = tryLocalStorage()
+  ) {}
+
+  async load(): Promise<StoredSession | null> {
+    if (!this.storage) {
+      return null;
+    }
+
+    try {
+      const raw = this.storage.getItem(this.key);
+      if (!raw) {
+        return null;
+      }
+      return parseStoredSession(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  async save(session: StoredSession): Promise<void> {
+    if (!this.storage) {
+      return;
+    }
+
+    this.storage.setItem(this.key, JSON.stringify({ username: session.username, token: session.token }));
+  }
+
+  async clear(): Promise<void> {
+    if (!this.storage) {
+      return;
+    }
+
+    try {
+      this.storage.removeItem(this.key);
+    } catch {
+      // Private-mode quota errors should not surface as auth failures.
+    }
+  }
+}
+
+type IngestibleFile = {
+  name: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+};
+
+/**
+ * In-memory FileIO for the browser. Upload by ingesting a File (or anything
+ * with `name` + `arrayBuffer`) then calling `session.sendFile(path)`.
+ * Download writes bytes here; the UI turns them into a Blob + object URL.
+ */
+export class BrowserFileIO extends MemoryFileIO {
+  async ingest(file: IngestibleFile): Promise<string> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const path = file.name || 'upload';
+    await this.writeFile(path, bytes);
+    return path;
+  }
+}
+
 /**
  * Browser WebSocket transport. The token is already on the URL as `?token=`;
  * browsers cannot set an Authorization header on the handshake.
