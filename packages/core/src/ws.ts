@@ -15,6 +15,57 @@ export interface WsIncomingMessage {
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 
+function locationOrigin(): string {
+  try {
+    return (globalThis as { location?: { origin?: string } }).location?.origin ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function originToSocket(origin: string): string {
+  const trimmed = origin.replace(/\/$/, '');
+  if (trimmed.startsWith('https://')) {
+    return `wss://${trimmed.slice('https://'.length)}`;
+  }
+  if (trimmed.startsWith('http://')) {
+    return `ws://${trimmed.slice('http://'.length)}`;
+  }
+  return trimmed;
+}
+
+/**
+ * Map an HTTP(S) API base URL to a WebSocket origin.
+ * An empty or relative base (same-origin static hosting) uses `location.origin`
+ * so `new WebSocket` gets an absolute `ws:` / `wss:` URL.
+ */
+export function toSocketUrl(baseUrl: string, origin = locationOrigin()): string {
+  const normalized = baseUrl.replace(/\/$/, '');
+
+  if (normalized.startsWith('https://')) {
+    return `wss://${normalized.slice('https://'.length)}`;
+  }
+
+  if (normalized.startsWith('http://')) {
+    return `ws://${normalized.slice('http://'.length)}`;
+  }
+
+  const wsOrigin = originToSocket(origin);
+  if (!wsOrigin) {
+    return normalized;
+  }
+
+  if (!normalized) {
+    return wsOrigin;
+  }
+
+  if (normalized.startsWith('/')) {
+    return `${wsOrigin}${normalized}`;
+  }
+
+  return normalized;
+}
+
 export class HermesWsClient {
   private socket: SocketHandle | null = null;
   private readonly messageListeners: Array<(message: WsIncomingMessage) => void> = [];
@@ -47,7 +98,7 @@ export class HermesWsClient {
     this.closedByUs = false;
 
     this.connectPromise = new Promise((resolve, reject) => {
-      const socketUrl = `${this.toSocketUrl(this.baseUrl)}/ws?token=${encodeURIComponent(token)}`;
+      const socketUrl = `${toSocketUrl(this.baseUrl)}/ws?token=${encodeURIComponent(token)}`;
       let handshakeStatus: number | undefined;
       let settled = false;
 
@@ -181,7 +232,7 @@ export class HermesWsClient {
 
     if (!this.isConnected()) {
       throw new Error(
-        `WebSocket is not connected. Check that the backend is running and that ${this.toSocketUrl(this.baseUrl)}/ws is reachable.`
+        `WebSocket is not connected. Check that the backend is running and that ${toSocketUrl(this.baseUrl)}/ws is reachable.`
       );
     }
 
@@ -194,19 +245,5 @@ export class HermesWsClient {
     this.socket = null;
     this.status = 'closed';
     this.connectPromise = null;
-  }
-
-  private toSocketUrl(baseUrl: string): string {
-    const normalized = baseUrl.replace(/\/$/, '');
-
-    if (normalized.startsWith('https://')) {
-      return normalized.replace('https://', 'wss://');
-    }
-
-    if (normalized.startsWith('http://')) {
-      return normalized.replace('http://', 'ws://');
-    }
-
-    return normalized;
   }
 }
