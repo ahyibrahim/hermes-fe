@@ -40,6 +40,11 @@ export interface HealthResponse {
   message: string;
 }
 
+export interface PublicUser {
+  id: number;
+  username: string;
+}
+
 export interface RoomRecord {
   id: number;
   slug: string;

@@ -1,10 +1,12 @@
 <script lang="ts">
-  import type { ConnectionStatus, MessageRecord, RoomRecord } from '@hermes/core';
+  import type { ConnectionStatus, MessageRecord, PublicUser, RoomRecord } from '@hermes/core';
   import { goto } from '$app/navigation';
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
   import { onMount } from 'svelte';
 
   let rooms = $state<RoomRecord[]>([]);
+  let directory = $state<PublicUser[]>([]);
+  let online = $state<string[]>([]);
   let messages = $state<MessageRecord[]>([]);
   let users = $state<string[]>([]);
   let status = $state<ConnectionStatus>('idle');
@@ -13,12 +15,57 @@
   let banner = $state('');
   let bannerError = $state(false);
   let draft = $state('');
+  let newRoomName = $state('');
   let pendingFile = $state<File | null>(null);
   let sending = $state(false);
+  let creatingRoom = $state(false);
+  let startingDm = $state<number | null>(null);
   let fileInput: HTMLInputElement | undefined = $state();
   let scroller: HTMLDivElement | undefined = $state();
 
   const session = getSession();
+
+  function isDm(room: RoomRecord | undefined): boolean {
+    if (!room) {
+      return false;
+    }
+    return room.type === 'dm' || room.slug.startsWith('dm:');
+  }
+
+  function roomTitle(room: RoomRecord | undefined): string {
+    if (!room) {
+      return '';
+    }
+    if (isDm(room)) {
+      const fromName = (room.name ?? '')
+        .split(',')
+        .map((part) => part.trim())
+        .find((part) => part && part !== username);
+      if (fromName) {
+        return fromName;
+      }
+      const fromSlug = room.slug
+        .split(':')
+        .slice(1)
+        .find((part) => part && part !== username);
+      if (fromSlug) {
+        return fromSlug;
+      }
+    }
+    return room.name || room.slug;
+  }
+
+  function currentRoomRecord(): RoomRecord | undefined {
+    return rooms.find((room) => room.slug === currentRoom);
+  }
+
+  function composerHint(): string {
+    const room = currentRoomRecord();
+    if (!room) {
+      return 'Pick a room first';
+    }
+    return isDm(room) ? `Message ${roomTitle(room)}` : `Message #${roomTitle(room)}`;
+  }
 
   function syncFromSession(): void {
     const state = session.getState();
@@ -53,6 +100,52 @@
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
       rooms = [];
+    }
+  }
+
+  async function loadDirectory(): Promise<void> {
+    try {
+      const [people, onlineUsers] = await Promise.all([session.listUsers(), session.listOnlineUsers()]);
+      directory = people;
+      online = onlineUsers;
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+      directory = [];
+      online = [];
+    }
+  }
+
+  async function createGroup(): Promise<void> {
+    const name = newRoomName.trim();
+    if (!name || creatingRoom) {
+      return;
+    }
+    creatingRoom = true;
+    try {
+      const room = await session.createRoom(name);
+      newRoomName = '';
+      await loadRooms();
+      await selectRoom(room.slug);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      creatingRoom = false;
+    }
+  }
+
+  async function startDm(user: PublicUser): Promise<void> {
+    if (user.username === username || startingDm != null) {
+      return;
+    }
+    startingDm = user.id;
+    try {
+      const room = await session.createDm(user.id);
+      await loadRooms();
+      await selectRoom(room.slug);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      startingDm = null;
     }
   }
 
@@ -146,7 +239,10 @@
     const offs = [
       session.on('history', () => syncFromSession()),
       session.on('message', () => syncFromSession()),
-      session.on('presence', () => syncFromSession()),
+      session.on('presence', () => {
+        syncFromSession();
+        void loadDirectory();
+      }),
       session.on('status', ({ status: next }) => {
         status = next;
       }),
@@ -158,7 +254,7 @@
     ];
 
     void (async () => {
-      await loadRooms();
+      await Promise.all([loadRooms(), loadDirectory()]);
       const first = rooms[0]?.slug;
       if (first && !session.getState().room) {
         await selectRoom(first);
@@ -189,19 +285,43 @@
               class:active={room.slug === currentRoom}
               onclick={() => selectRoom(room.slug)}
             >
-              <span class="hash">#</span>{room.slug}
+              {#if isDm(room)}
+                <span class="hash">@</span>{roomTitle(room)}
+              {:else}
+                <span class="hash">#</span>{roomTitle(room)}
+              {/if}
             </button>
           </li>
         {/each}
       </ul>
     {/if}
+    <form
+      class="new-room"
+      onsubmit={(event) => {
+        event.preventDefault();
+        void createGroup();
+      }}
+    >
+      <input
+        type="text"
+        placeholder="New room"
+        bind:value={newRoomName}
+        disabled={creatingRoom}
+        maxlength="80"
+      />
+      <button type="submit" disabled={creatingRoom || !newRoomName.trim()}>Create</button>
+    </form>
   </aside>
 
   <section class="center">
     <header class="top-bar">
       <h2>
-        {#if currentRoom}
-          <span class="hash">#</span>{currentRoom}
+        {#if currentRoomRecord()}
+          {#if isDm(currentRoomRecord())}
+            <span class="hash">@</span>{roomTitle(currentRoomRecord())}
+          {:else}
+            <span class="hash">#</span>{roomTitle(currentRoomRecord())}
+          {/if}
         {:else}
           Hermes
         {/if}
@@ -258,7 +378,7 @@
       </button>
       <textarea
         rows="1"
-        placeholder={currentRoom ? `Message #${currentRoom}` : 'Pick a room first'}
+        placeholder={composerHint()}
         bind:value={draft}
         disabled={sending || !currentRoom}
         onkeydown={onComposerKey}
@@ -274,12 +394,30 @@
 
   <aside class="rail people">
     <div class="rail-heading">people</div>
-    {#if users.length === 0}
+    {#if directory.length === 0}
       <p class="empty-hint">Nobody here yet.</p>
     {:else}
       <ul class="people-list">
-        {#each users as name (name)}
-          <li>{name}</li>
+        {#each directory as person (person.id)}
+          <li>
+            {#if person.username === username}
+              <span class="self">
+                <span class="status-dot" class:open={online.includes(person.username)}></span>
+                {person.username}
+                <span class="you">you</span>
+              </span>
+            {:else}
+              <button
+                type="button"
+                class:active={currentRoomRecord() && isDm(currentRoomRecord()) && roomTitle(currentRoomRecord()) === person.username}
+                disabled={startingDm != null}
+                onclick={() => startDm(person)}
+              >
+                <span class="status-dot" class:open={online.includes(person.username) || users.includes(person.username)}></span>
+                {person.username}
+              </button>
+            {/if}
+          </li>
         {/each}
       </ul>
     {/if}

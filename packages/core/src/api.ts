@@ -1,6 +1,14 @@
 import { FileIOAdapter } from './adapters.js';
 import { AuthError } from './errors.js';
-import { AuthResponse, FileUploadResponse, HealthResponse, MessageRecord, RegisterResponse, RoomRecord } from './types.js';
+import {
+  AuthResponse,
+  FileUploadResponse,
+  HealthResponse,
+  MessageRecord,
+  PublicUser,
+  RegisterResponse,
+  RoomRecord,
+} from './types.js';
 
 export class HermesApi {
   constructor(
@@ -56,6 +64,47 @@ export class HermesApi {
       headers: this.authHeaders(token),
     });
     return this.readJson<RoomRecord[]>(response, 'List rooms', true);
+  }
+
+  async listUsers(token: string): Promise<PublicUser[]> {
+    const response = await fetch(`${this.baseUrl}/users`, {
+      headers: this.authHeaders(token),
+    });
+    return this.readJson<PublicUser[]>(response, 'List users', true);
+  }
+
+  async listOnlineUsers(token: string): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/users/online`, {
+      headers: this.authHeaders(token),
+    });
+    return this.readJson<string[]>(response, 'List online users', true);
+  }
+
+  async createRoom(name: string, memberIds: number[], token: string): Promise<RoomRecord> {
+    const response = await fetch(`${this.baseUrl}/rooms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ name, members: memberIds }),
+    });
+    return this.readJson<RoomRecord>(response, 'Create room', true);
+  }
+
+  async createDm(userId: number, token: string): Promise<RoomRecord> {
+    const response = await fetch(`${this.baseUrl}/rooms/dm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ userId }),
+    });
+    return this.readJson<RoomRecord>(response, 'Create DM', true);
+  }
+
+  async logout(token: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: '{}',
+    });
+    await this.readJson<{ ok?: boolean }>(response, 'Logout', true);
   }
 
   async listMessages(room: string, token: string): Promise<MessageRecord[]> {

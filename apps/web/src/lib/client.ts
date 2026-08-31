@@ -45,6 +45,11 @@ export function resetClient(): void {
 }
 
 export async function signOut(): Promise<void> {
+  try {
+    await session?.logout();
+  } catch {
+    // Local sign-out still proceeds if the token is already gone.
+  }
   session?.shutdown();
   await getTokens().clear();
   resetClient();

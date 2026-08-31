@@ -153,6 +153,44 @@ test('presence roster tracks room_users, joins and leaves', async () => {
   }
 });
 
+test('rooms, users, DMs and logout match the v0.6.0 REST surface', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  backend.seedUser('bob', 'secret');
+  const session = createSession(backend.baseUrl);
+
+  try {
+    await session.login('alice', 'secret');
+    const directory = await session.listUsers();
+    assert.equal(directory.length, 2);
+    const bob = directory.find((user) => user.username === 'bob');
+    assert.ok(bob);
+
+    const group = await session.createRoom('Test Group', [bob.id]);
+    assert.equal(group.type, 'group');
+    assert.ok(group.slug.startsWith('group:'));
+
+    const dm = await session.createDm(bob.id);
+    assert.equal(dm.type, 'dm');
+    assert.equal(dm.slug, 'dm:alice:bob');
+
+    const again = await session.createDm(bob.id);
+    assert.equal(again.slug, dm.slug);
+
+    const rooms = await session.listRooms();
+    assert.ok(rooms.some((room) => room.slug === 'general' && room.type === 'group'));
+    assert.ok(rooms.some((room) => room.slug === group.slug));
+    assert.ok(rooms.some((room) => room.slug === dm.slug));
+
+    await session.logout();
+    assert.equal(session.getState().token, null);
+    assert.deepEqual(await session.listRooms(), []);
+  } finally {
+    session.shutdown();
+    await backend.close();
+  }
+});
+
 test('resume returns false after a stored token is rejected with 401', async () => {
   const backend = await startFakeBackend();
   backend.seedUser('alice', 'secret');
