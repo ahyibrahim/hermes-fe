@@ -18,19 +18,31 @@ npm run build
 
 `npm run build` compiles `@hermes/core`, then the CLI, then the web static bundle into `apps/web/build/`.
 
+| Command | What it is |
+|---------|------------|
+| `npm run dev:web` | Vite for the web UI (hot reload). Proxies API/WS to a running hermes-be. |
+| `npm start` | The **CLI**, not the web UI. |
+| `npm run build` | Compile core + CLI + the static SPA. Production has no frontend Node process. |
+
 ## Web UI
 
 A cheap Discord-shaped layout: rooms on the left, messages and composer in the middle, people on the right. It follows OS light/dark via `prefers-color-scheme`. There is no extra server/guild rail — Hermes has rooms, not guilds.
 
 ### Development
 
+Start hermes-be first (see that repo's README). Then:
+
 ```sh
 npm run dev:web
 ```
 
-That is `vite dev --host` in `apps/web`. The API base URL is empty (same origin as the Vite dev server). Vite proxies `/health`, `/auth`, `/rooms`, `/messages`, `/files`, and `/ws` to `http://ying-1:3000` (override the proxy target with `VITE_HERMES_PROXY_TARGET`).
+That is `vite dev --host` in `apps/web`. The API base URL is empty (same origin as the Vite dev server). Vite proxies `/health`, `/auth`, `/rooms`, `/messages`, `/files`, and `/ws` to `http://ying-1:3000` by default — that is **production** on this host. For a local backend:
 
-To talk to a backend directly instead of through the proxy:
+```sh
+VITE_HERMES_PROXY_TARGET=http://127.0.0.1:3000 npm run dev:web
+```
+
+To talk to a backend directly instead of through the proxy (needs CORS, which hermes-be does not send):
 
 ```sh
 VITE_HERMES_BASE_URL=http://ying-1:3000 npm run dev:web
@@ -38,13 +50,26 @@ VITE_HERMES_BASE_URL=http://ying-1:3000 npm run dev:web
 
 hermes-be does not send CORS headers, so the proxy is the path that works from `localhost`.
 
-### Production bundle
+### Production bundle (same origin as the API)
 
 ```sh
 npm run build
 ```
 
 The artifact is `apps/web/build/` (`index.html` plus hashed `_app/` assets). hermes-be serves that directory from `HERMES_WEB_DIR`. On the tailnet that is `http://ying-1:3000` — the same origin as the API, so the bundle uses relative URLs and does not bake in a hostname.
+
+To try that path **before** tagging or running `deploy.sh` (throwaway DB, not `/var/lib/hermes`):
+
+```sh
+npm run build
+cd /home/ai/Workspace/hermes-be
+HERMES_WEB_DIR=/home/ai/Workspace/hermes-fe/apps/web/build \
+HERMES_DB_PATH=/tmp/hermes-local.db \
+HERMES_FILES_DIR=/tmp/hermes-local-files \
+npm run dev
+```
+
+Open `http://127.0.0.1:3000`. That is the same serving path as production: one Fastify process, no Vite, no second Node service.
 
 The web session token lives in `localStorage` under `hermes.session`. `~/.config/hermes` is CLI-only.
 
@@ -60,13 +85,27 @@ Room selection is the left rail, not a URL. A 401 (`authExpired`) sends the brow
 
 Full end-to-end chat still needs hermes-be running. `vite build` plus `apps/web/build/index.html` is the CI check.
 
+## Deploy
+
+The web UI is static files. Do not run `npm start` or Vite on the host. After a tagged release, hermes-be's `deploy.sh` unpacks `apps/web/build/` into `HERMES_WEB_DIR` and the **backend** serves it. Runbook: [hermes-be/docs/DEPLOY.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/DEPLOY.md).
+
+```sh
+npm run build
+cd /home/ai/Workspace/hermes-be
+sudo ./scripts/setup-host.sh p1    # once, if /etc/hermes/p1.env does not exist
+sudo HERMES_WEB_BUNDLE=/home/ai/Workspace/hermes-fe/apps/web/build \
+  ./scripts/deploy.sh p1 v0.4.0
+```
+
+`deploy.sh` checks the hermes-be **tag** out of GitHub, not this working tree. Merge the PRs and push `v0.4.0` on both remotes before that command. Pushing a tag does not deploy by itself.
+
 ## CLI
 
 ```sh
 npm start
 ```
 
-`npm start` runs the compiled CLI at `apps/cli/dist/cli.js`. The `@hermes/cli` package also declares `bin.hermes`, so after a build you can run `node apps/cli/dist/cli.js` or install the workspace and invoke `hermes`.
+`npm start` runs the compiled **CLI** at `apps/cli/dist/cli.js`. It does not start the web UI. The `@hermes/cli` package also declares `bin.hermes`, so after a build you can run `node apps/cli/dist/cli.js` or install the workspace and invoke `hermes`.
 
 ### Configuration
 
