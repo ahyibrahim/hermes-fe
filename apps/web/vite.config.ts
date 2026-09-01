@@ -13,6 +13,7 @@ export default defineConfig({
       '/messages': { target: proxyTarget, changeOrigin: true },
       '/files': { target: proxyTarget, changeOrigin: true },
       '/users': { target: proxyTarget, changeOrigin: true },
+      '/ice': { target: proxyTarget, changeOrigin: true },
       '/ws': { target: proxyTarget, ws: true, changeOrigin: true },
     },
   },

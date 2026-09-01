@@ -67,3 +67,25 @@ export interface ClientState {
   messages: MessageRecord[];
   baseUrl: string;
 }
+
+export interface IceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+export interface IceConfig {
+  iceServers: IceServer[];
+}
+
+export interface SessionDescriptionPayload {
+  type: 'offer' | 'answer' | 'pranswer' | 'rollback';
+  sdp?: string;
+}
+
+export interface IceCandidatePayload {
+  candidate: string;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+  usernameFragment?: string | null;
+}

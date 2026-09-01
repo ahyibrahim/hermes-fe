@@ -239,3 +239,62 @@ test('resume returns false after a stored token is rejected with 401', async () 
     await backend.close();
   }
 });
+
+test('call signaling relays an offer only to the target and clears on disconnect', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  backend.seedUser('bob', 'secret');
+  backend.seedUser('carol', 'secret');
+  const alice = createSession(backend.baseUrl);
+  const bob = createSession(backend.baseUrl);
+  const carol = createSession(backend.baseUrl);
+
+  const bobOffers: Array<{ from: string; sdp: { sdp?: string } }> = [];
+  const carolFrames: string[] = [];
+  const bobLeft: string[] = [];
+
+  bob.on('callOffer', (payload) => bobOffers.push(payload));
+  carol.on('callOffer', () => carolFrames.push('offer'));
+  carol.on('userJoinedCall', () => carolFrames.push('joined'));
+  bob.on('userLeftCall', ({ user }) => bobLeft.push(user));
+
+  try {
+    await alice.login('alice', 'secret');
+    await bob.login('bob', 'secret');
+    await carol.login('carol', 'secret');
+    await alice.enterRoom('general');
+    await bob.enterRoom('general');
+    await carol.enterRoom('general');
+    await waitFor(() => alice.getConnectionStatus() === 'open');
+
+    const ice = await alice.getIce();
+    assert.ok(Array.isArray(ice.iceServers));
+    assert.ok(ice.iceServers.length > 0);
+
+    const alicePeers: string[][] = [];
+    alice.on('callPeers', ({ users }) => alicePeers.push(users));
+    const bobJoined: string[] = [];
+    alice.on('userJoinedCall', ({ user }) => bobJoined.push(user));
+
+    await alice.joinCall('general');
+    await waitFor(() => alicePeers.some((users) => users.includes('alice')));
+    await bob.joinCall('general');
+    await waitFor(() => bobJoined.includes('bob'));
+
+    alice.sendCallOffer('general', 'bob', { type: 'offer', sdp: 'v=0-test' });
+    await waitFor(() => bobOffers.length === 1);
+    assert.equal(bobOffers[0]?.from, 'alice');
+    assert.equal(bobOffers[0]?.sdp.sdp, 'v=0-test');
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(carolFrames.length, 0);
+
+    alice.shutdown();
+    await waitFor(() => bobLeft.includes('alice'));
+  } finally {
+    alice.shutdown();
+    bob.shutdown();
+    carol.shutdown();
+    await backend.close();
+  }
+});

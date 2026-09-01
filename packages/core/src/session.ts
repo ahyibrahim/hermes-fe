@@ -5,10 +5,13 @@ import { resolveRoom } from './resolve-room.js';
 import {
   ClientState,
   HealthResponse,
+  IceCandidatePayload,
+  IceConfig,
   MessageRecord,
   PublicUser,
   RegisterResponse,
   RoomRecord,
+  SessionDescriptionPayload,
 } from './types.js';
 import { ConnectionStatus, HermesWsClient, WsIncomingMessage } from './ws.js';
 
@@ -22,6 +25,13 @@ export type SessionEventMap = {
   info: { message: string };
   error: { message: string };
   authExpired: { source: 'rest' | 'ws' };
+  callPeers: { room: string; users: string[] };
+  userJoinedCall: { room: string; user: string };
+  userLeftCall: { room: string; user: string };
+  leftCall: { room: string };
+  callOffer: { room: string; from: string; sdp: SessionDescriptionPayload };
+  callAnswer: { room: string; from: string; sdp: SessionDescriptionPayload };
+  iceCandidate: { room: string; from: string; candidate: IceCandidatePayload | null };
 };
 
 type SessionListener<K extends keyof SessionEventMap> = (payload: SessionEventMap[K]) => void;
@@ -372,6 +382,37 @@ export class SessionController {
     return saved;
   }
 
+  async getIce(): Promise<IceConfig> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.getIce(this.state.token as string));
+  }
+
+  async joinCall(room: string): Promise<void> {
+    await this.ensureSocketForCall();
+    this.ws.send({ type: 'join_call', room });
+  }
+
+  async leaveCall(room: string): Promise<void> {
+    if (!this.ws.isConnected()) {
+      return;
+    }
+    this.ws.send({ type: 'leave_call', room });
+  }
+
+  sendCallOffer(room: string, to: string, sdp: SessionDescriptionPayload): void {
+    this.ws.send({ type: 'call_offer', room, to, sdp });
+  }
+
+  sendCallAnswer(room: string, to: string, sdp: SessionDescriptionPayload): void {
+    this.ws.send({ type: 'call_answer', room, to, sdp });
+  }
+
+  sendIceCandidate(room: string, to: string, candidate: IceCandidatePayload | null): void {
+    this.ws.send({ type: 'ice_candidate', room, to, candidate });
+  }
+
   shutdown(): void {
     this.shuttingDown = true;
     if (this.reconnectTimer) {
@@ -414,6 +455,11 @@ export class SessionController {
         this.emit('error', {
           message: payload.content ?? (typeof payload.message === 'string' ? payload.message : 'unknown error'),
         });
+        return;
+      }
+
+      if (this.handleCall(payload)) {
+        return;
       }
     });
 
@@ -510,6 +556,66 @@ export class SessionController {
     }
 
     return false;
+  }
+
+  private handleCall(payload: WsIncomingMessage): boolean {
+    if (payload.type === 'call_peers' && payload.room && Array.isArray(payload.users)) {
+      this.emit('callPeers', { room: payload.room, users: payload.users });
+      return true;
+    }
+
+    if (payload.type === 'user_joined_call' && payload.room && payload.user) {
+      this.emit('userJoinedCall', { room: payload.room, user: payload.user });
+      return true;
+    }
+
+    if (payload.type === 'user_left_call' && payload.room && payload.user) {
+      this.emit('userLeftCall', { room: payload.room, user: payload.user });
+      return true;
+    }
+
+    if (payload.type === 'left_call' && payload.room) {
+      this.emit('leftCall', { room: payload.room });
+      return true;
+    }
+
+    if (payload.type === 'call_offer' && payload.room && payload.from && payload.sdp) {
+      this.emit('callOffer', { room: payload.room, from: payload.from, sdp: payload.sdp });
+      return true;
+    }
+
+    if (payload.type === 'call_answer' && payload.room && payload.from && payload.sdp) {
+      this.emit('callAnswer', { room: payload.room, from: payload.from, sdp: payload.sdp });
+      return true;
+    }
+
+    if (payload.type === 'ice_candidate' && payload.room && payload.from) {
+      this.emit('iceCandidate', {
+        room: payload.room,
+        from: payload.from,
+        candidate: payload.candidate ?? null,
+      });
+      return true;
+    }
+
+    return false;
+  }
+
+  private async ensureSocketForCall(): Promise<void> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+
+    try {
+      await this.connect();
+    } catch (error) {
+      if (error instanceof AuthError) {
+        throw error;
+      }
+      throw new Error(
+        `Cannot join call over WebSocket. ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   private displayMessage(message: MessageRecord): void {

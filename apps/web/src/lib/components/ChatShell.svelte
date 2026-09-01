@@ -2,6 +2,8 @@
   import type { ConnectionStatus, MessageRecord, PublicUser, RoomRecord } from '@hermes/core';
   import { goto } from '$app/navigation';
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
+  import CallBar from '$lib/components/CallBar.svelte';
+  import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
   import { onMount } from 'svelte';
 
   let rooms = $state<RoomRecord[]>([]);
@@ -22,6 +24,14 @@
   let startingDm = $state<number | null>(null);
   let fileInput: HTMLInputElement | undefined = $state();
   let scroller: HTMLDivElement | undefined = $state();
+  let voice = $state<VoiceState>({
+    room: null,
+    joining: false,
+    muted: false,
+    peers: [],
+    error: null,
+  });
+  let mesh: VoiceMesh | undefined;
 
   const session = getSession();
 
@@ -65,6 +75,25 @@
       return 'Pick a room first';
     }
     return isDm(room) ? `Message ${roomTitle(room)}` : `Message #${roomTitle(room)}`;
+  }
+
+  function callRoomRecord(): RoomRecord | undefined {
+    return rooms.find((room) => room.slug === voice.room);
+  }
+
+  function callRoomLabel(): string {
+    const room = callRoomRecord();
+    if (!room) {
+      return voice.room ?? '';
+    }
+    return isDm(room) ? `@${roomTitle(room)}` : `#${roomTitle(room)}`;
+  }
+
+  async function joinCall(): Promise<void> {
+    if (!currentRoom || !mesh || voice.joining) {
+      return;
+    }
+    await mesh.join(currentRoom);
   }
 
   function syncFromSession(): void {
@@ -205,6 +234,7 @@
   }
 
   async function onSignOut(): Promise<void> {
+    await mesh?.leave();
     await signOut();
     await goto('/login');
   }
@@ -235,6 +265,14 @@
   });
 
   onMount(() => {
+    mesh = new VoiceMesh(session);
+    const offVoice = mesh.subscribe((next) => {
+      const previousError = voice.error;
+      voice = next;
+      if (next.error && next.error !== previousError) {
+        flash(next.error, true);
+      }
+    });
     syncFromSession();
     const offs = [
       session.on('history', () => syncFromSession()),
@@ -264,6 +302,9 @@
     })();
 
     return () => {
+      offVoice();
+      void mesh?.destroy();
+      mesh = undefined;
       for (const off of offs) {
         off();
       }
@@ -326,6 +367,16 @@
           Hermes
         {/if}
       </h2>
+      {#if currentRoom && !voice.room}
+        <button
+          type="button"
+          class="join-call"
+          disabled={voice.joining || status !== 'open'}
+          onclick={() => joinCall()}
+        >
+          {voice.joining ? 'Joining…' : 'Join call'}
+        </button>
+      {/if}
       <span class="status {status}">
         <span class="status-dot"></span>
         {statusLabel(status)}
@@ -335,6 +386,24 @@
       {/if}
       <button type="button" class="sign-out" onclick={onSignOut}>Sign out</button>
     </header>
+
+    {#if voice.room}
+      <CallBar
+        roomLabel={callRoomLabel()}
+        viewingCallRoom={voice.room === currentRoom}
+        muted={voice.muted}
+        joining={voice.joining}
+        peers={voice.peers}
+        error={voice.error}
+        onMute={(muted) => mesh?.setMuted(muted)}
+        onLeave={() => mesh?.leave()}
+        onShowRoom={() => {
+          if (voice.room) {
+            void selectRoom(voice.room);
+          }
+        }}
+      />
+    {/if}
 
     <div class="messages" bind:this={scroller}>
       {#if banner}

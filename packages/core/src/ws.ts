@@ -1,6 +1,6 @@
 import { SOCKET_OPEN, SocketCloseInfo, SocketHandle, TransportAdapter } from './adapters.js';
 import { AuthError } from './errors.js';
-import { MessageRecord } from './types.js';
+import { IceCandidatePayload, MessageRecord, SessionDescriptionPayload } from './types.js';
 
 export interface WsIncomingMessage {
   type: string;
@@ -11,6 +11,10 @@ export interface WsIncomingMessage {
   content?: string;
   sender?: string;
   messageText?: string;
+  from?: string;
+  to?: string;
+  sdp?: SessionDescriptionPayload;
+  candidate?: IceCandidatePayload | null;
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
@@ -237,6 +241,16 @@ export class HermesWsClient {
     }
 
     this.socket?.send(JSON.stringify({ type: 'join_room', room }));
+  }
+
+  send(payload: Record<string, unknown>): void {
+    if (!this.isConnected() || !this.socket) {
+      throw new Error(
+        `WebSocket is not connected. Check that the backend is running and that ${toSocketUrl(this.baseUrl)}/ws is reachable.`
+      );
+    }
+
+    this.socket.send(JSON.stringify(payload));
   }
 
   close(): void {
