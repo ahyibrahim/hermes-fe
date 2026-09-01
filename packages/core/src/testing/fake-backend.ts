@@ -16,6 +16,8 @@ export interface FakeBackend {
 interface StoredUser {
   id: number;
   password: string;
+  role: 'member' | 'admin';
+  avatarFileId: number | null;
 }
 
 interface RoomState extends RoomRecord {
@@ -32,6 +34,7 @@ interface StoredFile {
   id: number;
   name: string;
   data: Buffer;
+  mime?: string;
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
@@ -145,8 +148,16 @@ export async function startFakeBackend(): Promise<FakeBackend> {
 
   const publicUsers = (): PublicUser[] =>
     [...users.entries()]
-      .map(([username, user]) => ({ id: user.id, username }))
+      .map(([username, user]) => ({
+        id: user.id,
+        username,
+        role: user.role,
+        avatar_file_id: user.avatarFileId,
+      }))
       .sort((a, b) => a.username.localeCompare(b.username));
+
+  const profileOf = (username: string): PublicUser | undefined =>
+    publicUsers().find((user) => user.username === username);
 
   const broadcast = (room: string, payload: unknown, except?: WebSocket): void => {
     const data = JSON.stringify(payload);
@@ -193,9 +204,17 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 409, { error: 'username already exists' });
           return;
         }
-        users.set(username, { id: nextUserId++, password });
+        users.set(username, {
+          id: nextUserId++,
+          password,
+          role: users.size === 0 ? 'admin' : 'member',
+          avatarFileId: null,
+        });
         addToGeneral(username);
-        sendJson(res, 200, { user: { id: users.get(username)?.id, username } });
+        const created = users.get(username);
+        sendJson(res, 200, {
+          user: { id: created?.id, username, role: created?.role },
+        });
         return;
       }
 
@@ -232,6 +251,101 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         sendJson(res, 200, publicUsers());
+        return;
+      }
+
+      if (method === 'GET' && url.pathname === '/users/me') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const profile = profileOf(username);
+        if (!profile) {
+          sendJson(res, 401, { error: 'authentication required' });
+          return;
+        }
+        sendJson(res, 200, profile);
+        return;
+      }
+
+      if (method === 'PATCH' && url.pathname === '/users/me') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as {
+          current_password?: string;
+          password?: string;
+        };
+        const user = users.get(username);
+        if (!user || user.password !== body.current_password) {
+          sendJson(res, 401, { error: 'invalid credentials' });
+          return;
+        }
+        if (!body.password?.trim()) {
+          sendJson(res, 400, { error: 'current_password and password are required' });
+          return;
+        }
+        user.password = body.password;
+        const keep = bearerToken(req);
+        for (const [token, name] of [...tokens]) {
+          if (name === username && token !== keep) {
+            tokens.delete(token);
+          }
+        }
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (method === 'POST' && url.pathname === '/users/me/avatar') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const user = users.get(username);
+        if (!user) {
+          sendJson(res, 401, { error: 'authentication required' });
+          return;
+        }
+        const parsed = parseMultipart(await readBody(req), req.headers['content-type'] ?? '');
+        if (!parsed.file) {
+          sendJson(res, 400, { error: 'file is required' });
+          return;
+        }
+        const fileId = nextFileId++;
+        files.set(fileId, {
+          id: fileId,
+          name: parsed.file.filename,
+          data: parsed.file.data,
+          mime: 'image/png',
+        });
+        user.avatarFileId = fileId;
+        sendJson(res, 200, profileOf(username));
+        return;
+      }
+
+      const avatarMatch = /^\/users\/(\d+)\/avatar$/.exec(url.pathname);
+      if (method === 'GET' && avatarMatch) {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const id = Number(avatarMatch[1]);
+        const owner = [...users.values()].find((user) => user.id === id);
+        if (!owner?.avatarFileId) {
+          sendJson(res, 404, { error: 'avatar not found' });
+          return;
+        }
+        const file = files.get(owner.avatarFileId);
+        if (!file) {
+          sendJson(res, 404, { error: 'avatar not found' });
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': file.mime || 'application/octet-stream',
+          'Content-Length': file.data.length,
+        });
+        res.end(file.data);
         return;
       }
 
@@ -556,7 +670,12 @@ export async function startFakeBackend(): Promise<FakeBackend> {
     seedUser(username: string, password: string) {
       const name = username.trim().toLowerCase();
       if (!users.has(name)) {
-        users.set(name, { id: nextUserId++, password });
+        users.set(name, {
+          id: nextUserId++,
+          password,
+          role: users.size === 0 ? 'admin' : 'member',
+          avatarFileId: null,
+        });
       } else {
         const existing = users.get(name);
         if (existing) {

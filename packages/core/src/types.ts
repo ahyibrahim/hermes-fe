@@ -1,6 +1,9 @@
+export type UserRole = 'member' | 'admin';
+
 export interface UserPayload {
   id?: number;
   username: string;
+  role?: UserRole;
 }
 
 export interface AuthResponse {
@@ -43,6 +46,8 @@ export interface HealthResponse {
 export interface PublicUser {
   id: number;
   username: string;
+  role?: UserRole;
+  avatar_file_id?: number | null;
 }
 
 export interface RoomRecord {

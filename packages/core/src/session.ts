@@ -232,6 +232,46 @@ export class SessionController {
     await this.clearSession('rest');
   }
 
+  async getMe(): Promise<PublicUser | null> {
+    if (!this.state.token) {
+      return null;
+    }
+
+    try {
+      return await this.withAuth('rest', () => this.api.getMe(this.state.token as string));
+    } catch (error) {
+      if (error instanceof AuthError) {
+        throw error;
+      }
+      this.emit('error', {
+        message: `Could not load profile: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      return null;
+    }
+  }
+
+  async changePassword(currentPassword: string, password: string): Promise<void> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    // Wrong current password is 401; that is not a dead session.
+    await this.api.changePassword(currentPassword, password, this.state.token);
+  }
+
+  async uploadAvatar(file: Blob, filename: string): Promise<PublicUser> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.uploadAvatar(file, filename, this.state.token as string));
+  }
+
+  async fetchAvatar(userId: number): Promise<Uint8Array> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.fetchAvatar(userId, this.state.token as string));
+  }
+
   async health(): Promise<HealthResponse> {
     return this.api.health();
   }

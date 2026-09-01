@@ -331,7 +331,7 @@
         {statusLabel(status)}
       </span>
       {#if username}
-        <span class="whoami">{username}</span>
+        <a class="whoami" href="/profile">{username}</a>
       {/if}
       <button type="button" class="sign-out" onclick={onSignOut}>Sign out</button>
     </header>
