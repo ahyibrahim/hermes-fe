@@ -163,6 +163,63 @@ button {
   font-size: 0.9rem;
 }
 
+.auth-card .alt.back {
+  margin: 0 0 1rem;
+  text-align: left;
+}
+
+.auth-card h2 {
+  margin: 0.5rem 0 0.85rem;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.auth-card .ok {
+  color: var(--status-open);
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.auth-card input:read-only {
+  color: var(--text-muted);
+}
+
+.auth-card .secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.avatar-block {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.avatar {
+  width: 4rem;
+  height: 4rem;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-hover);
+}
+
+.avatar.placeholder {
+  display: grid;
+  place-items: center;
+  font-weight: 650;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.profile-card {
+  width: min(24rem, 100%);
+}
+
 .shell {
   height: 100%;
   display: grid;
@@ -370,6 +427,11 @@ button {
 .whoami {
   font-size: 0.8rem;
   color: var(--text-muted);
+  text-decoration: none;
+}
+
+.whoami:hover {
+  color: var(--text);
 }
 
 .sign-out {

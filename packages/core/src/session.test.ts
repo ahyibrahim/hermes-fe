@@ -191,6 +191,38 @@ test('rooms, users, DMs and logout match the v0.6.0 REST surface', async () => {
   }
 });
 
+test('profile password change and avatar round-trip match the v0.7.0 REST surface', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  const session = createSession(backend.baseUrl);
+  const png = Uint8Array.from(
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64'
+    )
+  );
+
+  try {
+    await session.login('alice', 'secret');
+    const me = await session.getMe();
+    assert.equal(me?.username, 'alice');
+    assert.equal(me?.role, 'admin');
+    assert.equal(me?.avatar_file_id, null);
+
+    await session.changePassword('secret', 'next-secret');
+    const stillMe = await session.getMe();
+    assert.equal(stillMe?.username, 'alice');
+
+    const uploaded = await session.uploadAvatar(new Blob([png], { type: 'image/png' }), 'me.png');
+    assert.ok(uploaded.avatar_file_id);
+    const bytes = await session.fetchAvatar(uploaded.id);
+    assert.deepEqual(Buffer.from(bytes), Buffer.from(png));
+  } finally {
+    session.shutdown();
+    await backend.close();
+  }
+});
+
 test('resume returns false after a stored token is rejected with 401', async () => {
   const backend = await startFakeBackend();
   backend.seedUser('alice', 'secret');

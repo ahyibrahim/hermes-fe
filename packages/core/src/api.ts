@@ -107,6 +107,51 @@ export class HermesApi {
     await this.readJson<{ ok?: boolean }>(response, 'Logout', true);
   }
 
+  async getMe(token: string): Promise<PublicUser> {
+    const response = await fetch(`${this.baseUrl}/users/me`, {
+      headers: this.authHeaders(token),
+    });
+    return this.readJson<PublicUser>(response, 'Get profile', true);
+  }
+
+  async changePassword(currentPassword: string, password: string, token: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/users/me`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ current_password: currentPassword, password }),
+    });
+    await this.readJson<{ ok?: boolean }>(response, 'Change password', false);
+  }
+
+  async uploadAvatar(file: Blob, filename: string, token: string): Promise<PublicUser> {
+    const form = new FormData();
+    form.append('file', file, filename);
+    const response = await fetch(`${this.baseUrl}/users/me/avatar`, {
+      method: 'POST',
+      headers: this.authHeaders(token),
+      body: form,
+    });
+    return this.readJson<PublicUser>(response, 'Upload avatar', true);
+  }
+
+  async fetchAvatar(userId: number, token: string): Promise<Uint8Array> {
+    const response = await fetch(`${this.baseUrl}/users/${encodeURIComponent(String(userId))}/avatar`, {
+      headers: this.authHeaders(token),
+    });
+
+    if (response.status === 401) {
+      const text = await response.text();
+      throw new AuthError(`Fetch avatar failed: 401 ${text}`.trim());
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Fetch avatar failed: ${response.status} ${text}`);
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
   async listMessages(room: string, token: string): Promise<MessageRecord[]> {
     const response = await fetch(`${this.baseUrl}/messages?room=${encodeURIComponent(room)}`, {
       headers: this.authHeaders(token),
