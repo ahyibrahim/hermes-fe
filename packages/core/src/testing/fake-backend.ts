@@ -119,6 +119,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   const messages: MessageRecord[] = [];
   const files = new Map<number, StoredFile>();
   const clients = new Set<Client>();
+  const callMembers = new Map<string, Set<string>>();
   let nextMessageId = 1;
   let nextFileId = 1;
   let nextToken = 1;
@@ -167,6 +168,55 @@ export async function startFakeBackend(): Promise<FakeBackend> {
       }
     }
   };
+
+  const socketsFor = (username: string): Client[] =>
+    [...clients].filter((client) => client.user === username && client.socket.readyState === WebSocket.OPEN);
+
+  const sendToUser = (username: string, payload: unknown): void => {
+    const data = JSON.stringify(payload);
+    for (const client of socketsFor(username)) {
+      client.socket.send(data);
+    }
+  };
+
+  const callRoster = (room: string): string[] => [...(callMembers.get(room) ?? [])].sort((a, b) => a.localeCompare(b));
+
+  const broadcastCall = (room: string, payload: unknown, exceptUser?: string): void => {
+    const members = callMembers.get(room);
+    if (!members) {
+      return;
+    }
+    for (const name of members) {
+      if (exceptUser && name === exceptUser) {
+        continue;
+      }
+      sendToUser(name, payload);
+    }
+  };
+
+  const removeFromCall = (room: string, username: string, notifyLeaver: boolean): void => {
+    const members = callMembers.get(room);
+    if (!members?.has(username)) {
+      return;
+    }
+    members.delete(username);
+    if (members.size === 0) {
+      callMembers.delete(room);
+    }
+    broadcastCall(room, { type: 'user_left_call', room, user: username });
+    if (notifyLeaver) {
+      sendToUser(username, { type: 'left_call', room });
+    }
+  };
+
+  const leaveAllCalls = (username: string): void => {
+    for (const room of [...callMembers.keys()]) {
+      removeFromCall(room, username, false);
+    }
+  };
+
+  const remainingSockets = (username: string): number =>
+    [...clients].filter((client) => client.user === username).length;
 
   const requireUser = (req: http.IncomingMessage, res: http.ServerResponse): string | null => {
     const token = bearerToken(req);
@@ -359,6 +409,15 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           200,
           [...new Set([...clients].map((client) => client.user))].sort((a, b) => a.localeCompare(b))
         );
+        return;
+      }
+
+      if (method === 'GET' && url.pathname === '/ice') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        sendJson(res, 200, { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
         return;
       }
 
@@ -605,47 +664,114 @@ export async function startFakeBackend(): Promise<FakeBackend> {
       ws.send(JSON.stringify({ type: 'connected', user }));
 
       ws.on('message', (raw) => {
-        let payload: { type?: string; room?: string };
+        let payload: {
+          type?: string;
+          room?: string;
+          to?: string;
+          sdp?: unknown;
+          candidate?: unknown;
+        };
         try {
-          payload = JSON.parse(raw.toString()) as { type?: string; room?: string };
+          payload = JSON.parse(raw.toString()) as typeof payload;
         } catch {
           ws.send(JSON.stringify({ type: 'error', content: 'Invalid message payload' }));
           return;
         }
 
-        if (payload.type !== 'join_room') {
-          ws.send(JSON.stringify({ type: 'error', content: 'unknown message type' }));
+        if (payload.type === 'join_room') {
+          const roomSlug = payload.room?.trim();
+          if (!roomSlug) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+            return;
+          }
+
+          joinCount += 1;
+          if (client.room) {
+            const left = client.room;
+            client.room = null;
+            broadcast(left, { type: 'user_left', room: left, user }, ws);
+          }
+
+          const room = rooms.get(roomSlug) ?? {
+            id: nextRoomId++,
+            slug: roomSlug,
+            name: roomSlug,
+            type: 'group',
+            members: [],
+          };
+          rooms.set(room.slug, room);
+          if (!room.members.includes(user)) {
+            room.members.push(user);
+          }
+          client.room = room.slug;
+          ws.send(JSON.stringify({ type: 'joined_room', room: room.slug }));
+          ws.send(JSON.stringify({ type: 'room_users', room: room.slug, users: connectedUsers(room.slug) }));
+          broadcast(room.slug, { type: 'user_joined', room: room.slug, user }, ws);
           return;
         }
 
-        const roomSlug = payload.room?.trim();
-        if (!roomSlug) {
-          ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+        if (payload.type === 'join_call') {
+          const roomSlug = payload.room?.trim();
+          if (!roomSlug) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+            return;
+          }
+          const room = rooms.get(roomSlug);
+          if (!room?.members.includes(user)) {
+            ws.send(JSON.stringify({ type: 'error', content: 'not a member of that room' }));
+            return;
+          }
+          for (const other of [...callMembers.keys()]) {
+            if (other !== roomSlug && callMembers.get(other)?.has(user)) {
+              removeFromCall(other, user, true);
+            }
+          }
+          if (!callMembers.has(roomSlug)) {
+            callMembers.set(roomSlug, new Set());
+          }
+          const already = callMembers.get(roomSlug)?.has(user) === true;
+          callMembers.get(roomSlug)?.add(user);
+          ws.send(JSON.stringify({ type: 'call_peers', room: roomSlug, users: callRoster(roomSlug) }));
+          if (!already) {
+            broadcastCall(roomSlug, { type: 'user_joined_call', room: roomSlug, user }, user);
+          }
           return;
         }
 
-        joinCount += 1;
-        if (client.room) {
-          const left = client.room;
-          client.room = null;
-          broadcast(left, { type: 'user_left', room: left, user }, ws);
+        if (payload.type === 'leave_call') {
+          const roomSlug = payload.room?.trim();
+          if (!roomSlug) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+            return;
+          }
+          removeFromCall(roomSlug, user, true);
+          return;
         }
 
-        const room = rooms.get(roomSlug) ?? {
-          id: nextRoomId++,
-          slug: roomSlug,
-          name: roomSlug,
-          type: 'group',
-          members: [],
-        };
-        rooms.set(room.slug, room);
-        if (!room.members.includes(user)) {
-          room.members.push(user);
+        if (payload.type === 'call_offer' || payload.type === 'call_answer' || payload.type === 'ice_candidate') {
+          const roomSlug = payload.room?.trim() ?? '';
+          const to = payload.to?.trim().toLowerCase() ?? '';
+          const members = callMembers.get(roomSlug);
+          if (!roomSlug || !to) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room and to are required' }));
+            return;
+          }
+          if (!members?.has(user) || !members.has(to) || to === user) {
+            ws.send(JSON.stringify({ type: 'error', content: 'not in that call' }));
+            return;
+          }
+          sendToUser(to, {
+            type: payload.type,
+            room: roomSlug,
+            from: user,
+            to,
+            sdp: payload.sdp,
+            candidate: payload.candidate ?? null,
+          });
+          return;
         }
-        client.room = room.slug;
-        ws.send(JSON.stringify({ type: 'joined_room', room: room.slug }));
-        ws.send(JSON.stringify({ type: 'room_users', room: room.slug, users: connectedUsers(room.slug) }));
-        broadcast(room.slug, { type: 'user_joined', room: room.slug, user }, ws);
+
+        ws.send(JSON.stringify({ type: 'error', content: 'unknown message type' }));
       });
 
       ws.on('close', () => {
@@ -653,6 +779,9 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         clients.delete(client);
         if (left) {
           broadcast(left, { type: 'user_left', room: left, user });
+        }
+        if (remainingSockets(user) === 0) {
+          leaveAllCalls(user);
         }
       });
     });

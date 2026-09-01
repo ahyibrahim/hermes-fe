@@ -4,6 +4,7 @@ import {
   AuthResponse,
   FileUploadResponse,
   HealthResponse,
+  IceConfig,
   MessageRecord,
   PublicUser,
   RegisterResponse,
@@ -150,6 +151,13 @@ export class HermesApi {
     }
 
     return new Uint8Array(await response.arrayBuffer());
+  }
+
+  async getIce(token: string): Promise<IceConfig> {
+    const response = await fetch(`${this.baseUrl}/ice`, {
+      headers: this.authHeaders(token),
+    });
+    return this.readJson<IceConfig>(response, 'Get ICE servers', true);
   }
 
   async listMessages(room: string, token: string): Promise<MessageRecord[]> {
