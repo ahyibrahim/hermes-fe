@@ -6,3 +6,6 @@ export * from './api.js';
 export * from './ws.js';
 export * from './resolve-room.js';
 export * from './session.js';
+export * from './colors.js';
+export * from './message-body.js';
+export * from './message-groups.js';

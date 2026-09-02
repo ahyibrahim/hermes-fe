@@ -1,8 +1,12 @@
 <script lang="ts">
   import type { PublicUser } from '@hermes/core';
+  import { USER_COLOR_PALETTE } from '@hermes/core';
   import { goto } from '$app/navigation';
+  import AvatarCrop from '$lib/components/AvatarCrop.svelte';
+  import Avatar from '$lib/components/Avatar.svelte';
+  import { forgetAvatar } from '$lib/ui';
   import { getSession } from '$lib/client';
-  import { onDestroy, onMount } from 'svelte';
+  import { onMount } from 'svelte';
 
   let checking = $state(true);
   let profile = $state<PublicUser | null>(null);
@@ -14,32 +18,12 @@
   let passwordOk = $state('');
   let avatarBusy = $state(false);
   let avatarError = $state('');
-  let avatarUrl = $state<string | null>(null);
+  let colorError = $state('');
+  let colorBusy = $state(false);
+  let cropFile = $state<File | null>(null);
   let fileInput: HTMLInputElement | undefined = $state();
 
   const session = getSession();
-
-  function revokePreview(): void {
-    if (avatarUrl) {
-      URL.revokeObjectURL(avatarUrl);
-      avatarUrl = null;
-    }
-  }
-
-  async function loadAvatar(user: PublicUser): Promise<void> {
-    revokePreview();
-    if (!user.avatar_file_id) {
-      return;
-    }
-    try {
-      const bytes = await session.fetchAvatar(user.id);
-      const copy = new Uint8Array(bytes.byteLength);
-      copy.set(bytes);
-      avatarUrl = URL.createObjectURL(new Blob([copy]));
-    } catch (error) {
-      avatarError = error instanceof Error ? error.message : String(error);
-    }
-  }
 
   async function loadProfile(): Promise<boolean> {
     if (!(await session.resume()) && !session.getState().token) {
@@ -50,7 +34,6 @@
       return false;
     }
     profile = me;
-    await loadAvatar(me);
     return true;
   }
 
@@ -65,10 +48,6 @@
       return;
     }
     checking = false;
-  });
-
-  onDestroy(() => {
-    revokePreview();
   });
 
   async function onChangePassword(event: Event): Promise<void> {
@@ -98,24 +77,43 @@
     }
   }
 
-  async function onAvatarPicked(event: Event): Promise<void> {
+  function onAvatarPicked(event: Event): void {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
     if (!file) {
       return;
     }
-
     avatarError = '';
+    cropFile = file;
+  }
+
+  async function onCropped(blob: Blob): Promise<void> {
+    cropFile = null;
+    if (!profile) {
+      return;
+    }
     avatarBusy = true;
     try {
-      const updated = await session.uploadAvatar(file, file.name);
+      const updated = await session.uploadAvatar(blob, 'avatar.png');
+      forgetAvatar(updated.id);
       profile = updated;
-      await loadAvatar(updated);
     } catch (error) {
       avatarError = error instanceof Error ? error.message : String(error);
     } finally {
       avatarBusy = false;
+    }
+  }
+
+  async function onPickColor(color: string): Promise<void> {
+    colorError = '';
+    colorBusy = true;
+    try {
+      profile = await session.setColor(color);
+    } catch (error) {
+      colorError = error instanceof Error ? error.message : String(error);
+    } finally {
+      colorBusy = false;
     }
   }
 </script>
@@ -130,11 +128,7 @@
       <p class="lede">Your login name stays as-is. Roles are labels for now.</p>
 
       <div class="avatar-block">
-        {#if avatarUrl}
-          <img class="avatar" src={avatarUrl} alt="" />
-        {:else}
-          <div class="avatar placeholder" aria-hidden="true">{profile.username.slice(0, 1)}</div>
-        {/if}
+        <Avatar user={profile} size="lg" />
         <div>
           <button type="button" class="secondary" disabled={avatarBusy} onclick={() => fileInput?.click()}>
             {avatarBusy ? 'Uploading…' : 'Change avatar'}
@@ -150,6 +144,25 @@
       </div>
       {#if avatarError}
         <p class="error">{avatarError}</p>
+      {/if}
+
+      <p class="lede color-label">Username color</p>
+      <div class="color-swatches">
+        {#each USER_COLOR_PALETTE as color (color)}
+          <button
+            type="button"
+            class="swatch user-color-{color}"
+            class:selected={profile.color === color}
+            disabled={colorBusy}
+            title={color}
+            onclick={() => onPickColor(color)}
+          >
+            {color}
+          </button>
+        {/each}
+      </div>
+      {#if colorError}
+        <p class="error">{colorError}</p>
       {/if}
 
       <label for="profile-username">Username</label>
@@ -192,4 +205,8 @@
       <button type="submit" disabled={passwordBusy}>{passwordBusy ? 'Please wait…' : 'Update password'}</button>
     </form>
   </div>
+{/if}
+
+{#if cropFile}
+  <AvatarCrop file={cropFile} onCancel={() => (cropFile = null)} onCrop={onCropped} />
 {/if}

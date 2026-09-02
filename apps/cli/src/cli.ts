@@ -69,6 +69,7 @@ Slash commands:
   /help                 Show this help
   /health               Check backend health
   /join <room>          Switch room, reload users and history
+  /leave [room]         Leave a group or DM (not general)
   /sendfile <path>      Upload a file to the current room
   /getfile <id> [path]  Download a file by id
   /quit                 Exit the client
@@ -95,7 +96,8 @@ function printRoomList(rooms: RoomRecord[]): void {
 
   say('Available rooms:');
   for (const room of rooms) {
-    say(`  ${room.id}  ${room.slug}  ${room.name}`);
+    const unread = room.unread_count && room.unread_count > 0 ? `  (${room.unread_count} unread)` : '';
+    say(`  ${room.id}  ${room.slug}  ${room.name}${unread}`);
   }
 }
 
@@ -124,6 +126,7 @@ function printConnectionStatus(): void {
 
 function bindSession(): void {
   session.on('message', (message) => say(formatMessage(message)));
+  session.on('roomActivity', ({ room, message }) => say(`[${room}] ${formatMessage(message)}`));
   session.on('history', ({ messages }) => printMessages(messages));
   session.on('presence', () => say(formatUsersLine()));
   session.on('connected', ({ user }) => say(`Connected as ${user}`));
@@ -248,6 +251,20 @@ async function handleSlashCommand(command: string, args: string[], rest: string)
       }
       await session.enterRoom(room);
       refreshPrompt();
+      break;
+    }
+    case 'leave': {
+      const slug = args[0] || session.getState().room;
+      if (!slug) {
+        say('Usage: /leave [room]');
+        break;
+      }
+      await session.leaveRoom(slug);
+      say(`Left ${slug}.`);
+      if (session.getState().room === slug) {
+        await session.enterRoom('general');
+        refreshPrompt();
+      }
       break;
     }
     case 'sendfile': {

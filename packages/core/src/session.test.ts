@@ -298,3 +298,36 @@ test('call signaling relays an offer only to the target and clears on disconnect
     await backend.close();
   }
 });
+
+test('off-room member fan-out emits roomActivity and does not append to the open transcript', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  backend.seedUser('bob', 'secret');
+  const alice = createSession(backend.baseUrl);
+  const bob = createSession(backend.baseUrl);
+  const activity: Array<{ room: string; content: string }> = [];
+  alice.on('roomActivity', ({ room, message }) => activity.push({ room, content: message.content }));
+
+  try {
+    await alice.login('alice', 'secret');
+    await bob.login('bob', 'secret');
+    const users = await alice.listUsers();
+    const bobId = users.find((user) => user.username === 'bob')?.id as number;
+    const room = await alice.createRoom('offroom', [bobId]);
+    await alice.enterRoom('general');
+    await bob.enterRoom(room.slug);
+    await waitFor(() => alice.getConnectionStatus() === 'open');
+    await bob.sendMessage('secret ping');
+    await waitFor(() => activity.length === 1);
+    assert.equal(activity[0]?.room, room.slug);
+    assert.equal(activity[0]?.content, 'secret ping');
+    assert.equal(
+      alice.getState().messages.some((message) => message.content === 'secret ping'),
+      false
+    );
+  } finally {
+    alice.shutdown();
+    bob.shutdown();
+    await backend.close();
+  }
+});

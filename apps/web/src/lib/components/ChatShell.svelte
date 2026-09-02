@@ -1,10 +1,22 @@
 <script lang="ts">
   import type { ConnectionStatus, MessageRecord, PublicUser, RoomRecord } from '@hermes/core';
+  import { groupConsecutiveBySender } from '@hermes/core';
   import { goto } from '$app/navigation';
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
+  import Avatar from '$lib/components/Avatar.svelte';
   import CallBar from '$lib/components/CallBar.svelte';
+  import MessageGroup from '$lib/components/MessageGroup.svelte';
+  import UserChip from '$lib/components/UserChip.svelte';
+  import {
+    colorClass,
+    formatUnread,
+    RAIL_PEOPLE_KEY,
+    RAIL_ROOMS_KEY,
+    readCollapsed,
+    writeCollapsed,
+  } from '$lib/ui';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   let rooms = $state<RoomRecord[]>([]);
   let directory = $state<PublicUser[]>([]);
@@ -22,8 +34,17 @@
   let sending = $state(false);
   let creatingRoom = $state(false);
   let startingDm = $state<number | null>(null);
+  let leaving = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
+  let composer: HTMLTextAreaElement | undefined = $state();
   let scroller: HTMLDivElement | undefined = $state();
+  let stickToBottom = $state(true);
+  let showJump = $state(false);
+  let ignoreScroll = false;
+  let roomsCollapsed = $state(false);
+  let peopleCollapsed = $state(false);
+  let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
+  let callToast = $state<{ room: string; user: string } | null>(null);
   let voice = $state<VoiceState>({
     room: null,
     joining: false,
@@ -34,12 +55,32 @@
   let mesh: VoiceMesh | undefined;
 
   const session = getSession();
+  const unreadTotal = $derived(rooms.reduce((sum, room) => sum + (room.unread_count ?? 0), 0));
+  const tabTitle = $derived(unreadTotal > 0 ? `(${unreadTotal}) Hermes` : 'Hermes');
+  const me = $derived(directory.find((person) => person.username === username) ?? null);
+  const groupRooms = $derived(rooms.filter((room) => !isDm(room)));
+  const dmRooms = $derived(rooms.filter((room) => isDm(room)));
+  const people = $derived(
+    [...directory].sort((a, b) => {
+      const ao = isOnline(a.username) ? 0 : 1;
+      const bo = isOnline(b.username) ? 0 : 1;
+      if (ao !== bo) {
+        return ao - bo;
+      }
+      return a.username.localeCompare(b.username);
+    })
+  );
+  const messageGroups = $derived(groupConsecutiveBySender(messages));
 
   function isDm(room: RoomRecord | undefined): boolean {
     if (!room) {
       return false;
     }
     return room.type === 'dm' || room.slug.startsWith('dm:');
+  }
+
+  function isOnline(name: string): boolean {
+    return online.includes(name) || users.includes(name);
   }
 
   function roomTitle(room: RoomRecord | undefined): string {
@@ -89,11 +130,65 @@
     return isDm(room) ? `@${roomTitle(room)}` : `#${roomTitle(room)}`;
   }
 
-  async function joinCall(): Promise<void> {
-    if (!currentRoom || !mesh || voice.joining) {
+  function lookupUser(name: string): PublicUser | undefined {
+    return directory.find((person) => person.username === name);
+  }
+
+  function setCollapsed(which: 'rooms' | 'people', value: boolean): void {
+    if (which === 'rooms') {
+      roomsCollapsed = value;
+      writeCollapsed(RAIL_ROOMS_KEY, value);
+    } else {
+      peopleCollapsed = value;
+      writeCollapsed(RAIL_PEOPLE_KEY, value);
+    }
+  }
+
+  function bumpUnread(slug: string): void {
+    if (slug === currentRoom && typeof document !== 'undefined' && !document.hidden) {
       return;
     }
-    await mesh.join(currentRoom);
+    rooms = rooms.map((room) =>
+      room.slug === slug ? { ...room, unread_count: (room.unread_count ?? 0) + 1 } : room
+    );
+  }
+
+  function clearUnread(slug: string): void {
+    rooms = rooms.map((room) => (room.slug === slug ? { ...room, unread_count: 0 } : room));
+  }
+
+  function maybeNotify(roomSlug: string, message: MessageRecord): void {
+    if (message.sender === username) {
+      return;
+    }
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+      return;
+    }
+    if (typeof document !== 'undefined' && !document.hidden && roomSlug === currentRoom) {
+      return;
+    }
+    const room = rooms.find((entry) => entry.slug === roomSlug);
+    const label = room ? roomTitle(room) : roomSlug;
+    const body = (message.content || '').slice(0, 120);
+    try {
+      new Notification(`${message.sender} · ${label}`, { body, tag: `hermes:${roomSlug}` });
+    } catch {
+      // Some browsers still throw even after a granted check.
+    }
+  }
+
+  async function askNotify(): Promise<void> {
+    if (typeof Notification === 'undefined') {
+      return;
+    }
+    notifyPerm = await Notification.requestPermission();
+  }
+
+  async function joinCall(room = currentRoom): Promise<void> {
+    if (!room || !mesh || voice.joining) {
+      return;
+    }
+    await mesh.join(room);
   }
 
   function syncFromSession(): void {
@@ -110,14 +205,74 @@
     bannerError = isError;
   }
 
+  function atBottom(): boolean {
+    if (!scroller) {
+      return true;
+    }
+    return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+  }
+
+  function onTranscriptScroll(): void {
+    if (!scroller || ignoreScroll) {
+      return;
+    }
+    stickToBottom = atBottom();
+    showJump = !stickToBottom;
+  }
+
+  function pinToLatest(): void {
+    if (!scroller || !stickToBottom) {
+      return;
+    }
+    ignoreScroll = true;
+    const apply = (): void => {
+      if (scroller && stickToBottom) {
+        scroller.scrollTop = scroller.scrollHeight;
+      }
+    };
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(() => {
+        apply();
+        ignoreScroll = false;
+        showJump = false;
+      });
+    });
+  }
+
+  function jumpToLatest(): void {
+    stickToBottom = true;
+    showJump = false;
+    pinToLatest();
+  }
+
+  async function markFocusedRead(): Promise<void> {
+    if (!currentRoom || (typeof document !== 'undefined' && document.hidden)) {
+      return;
+    }
+    try {
+      await session.markRoomRead(currentRoom);
+      clearUnread(currentRoom);
+    } catch {
+      // Unread can catch up on the next room list fetch.
+    }
+  }
+
   async function selectRoom(slug: string): Promise<void> {
-    if (!slug || slug === currentRoom) {
+    if (!slug) {
       return;
     }
     banner = '';
+    stickToBottom = true;
+    showJump = false;
     try {
-      await session.enterRoom(slug);
-      syncFromSession();
+      if (slug !== currentRoom) {
+        await session.enterRoom(slug);
+        syncFromSession();
+      }
+      clearUnread(slug);
+      await session.markRoomRead(slug);
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
     }
@@ -134,8 +289,8 @@
 
   async function loadDirectory(): Promise<void> {
     try {
-      const [people, onlineUsers] = await Promise.all([session.listUsers(), session.listOnlineUsers()]);
-      directory = people;
+      const [peopleList, onlineUsers] = await Promise.all([session.listUsers(), session.listOnlineUsers()]);
+      directory = peopleList;
       online = onlineUsers;
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
@@ -178,6 +333,38 @@
     }
   }
 
+  async function leaveSlug(slug: string): Promise<void> {
+    if (!slug || slug === 'general' || leaving) {
+      return;
+    }
+    leaving = true;
+    try {
+      await session.leaveRoom(slug);
+      const remaining = rooms.filter((room) => room.slug !== slug);
+      rooms = remaining;
+      if (currentRoom === slug) {
+        const next = remaining.find((room) => room.slug === 'general') ?? remaining[0];
+        if (next) {
+          await selectRoom(next.slug);
+        } else {
+          currentRoom = null;
+          messages = [];
+        }
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      leaving = false;
+    }
+  }
+
+  function takePendingFile(file: File | null | undefined): void {
+    if (!file) {
+      return;
+    }
+    pendingFile = file;
+  }
+
   async function send(): Promise<void> {
     const text = draft.trim();
     const file = pendingFile;
@@ -207,6 +394,7 @@
       flash(error instanceof Error ? error.message : String(error), true);
     } finally {
       sending = false;
+      composer?.focus();
     }
   }
 
@@ -219,7 +407,28 @@
 
   function onFilePicked(event: Event): void {
     const input = event.currentTarget as HTMLInputElement;
-    pendingFile = input.files?.[0] ?? null;
+    takePendingFile(input.files?.[0] ?? null);
+  }
+
+  function onComposerDrop(event: DragEvent): void {
+    event.preventDefault();
+    takePendingFile(event.dataTransfer?.files?.[0]);
+  }
+
+  function onComposerPaste(event: ClipboardEvent): void {
+    const item = [...(event.clipboardData?.items ?? [])].find((entry) => entry.type.startsWith('image/'));
+    const file = item?.getAsFile();
+    if (file) {
+      event.preventDefault();
+      takePendingFile(file);
+    }
+  }
+
+  function clearPendingFile(): void {
+    pendingFile = null;
+    if (fileInput) {
+      fileInput.value = '';
+    }
   }
 
   async function onDownload(message: MessageRecord): Promise<void> {
@@ -239,6 +448,16 @@
     await goto('/login');
   }
 
+  async function joinToast(): Promise<void> {
+    const toast = callToast;
+    callToast = null;
+    if (!toast) {
+      return;
+    }
+    await selectRoom(toast.room);
+    await joinCall(toast.room);
+  }
+
   function statusLabel(value: ConnectionStatus): string {
     if (value === 'open') {
       return 'connected';
@@ -249,22 +468,43 @@
     return value;
   }
 
-  function formatTime(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return value;
-    }
-    return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  }
-
   $effect(() => {
     messages;
-    if (scroller) {
-      scroller.scrollTop = scroller.scrollHeight;
+    if (!scroller) {
+      return;
+    }
+    if (stickToBottom) {
+      void tick().then(pinToLatest);
+    } else {
+      showJump = true;
     }
   });
 
+  $effect(() => {
+    const root = scroller;
+    if (!root) {
+      return;
+    }
+    const inner = root.firstElementChild;
+    if (!(inner instanceof HTMLElement)) {
+      return;
+    }
+    const ro = new ResizeObserver(() => {
+      if (stickToBottom) {
+        pinToLatest();
+      }
+    });
+    ro.observe(inner);
+    ro.observe(root);
+    return () => ro.disconnect();
+  });
+
   onMount(() => {
+    roomsCollapsed = readCollapsed(RAIL_ROOMS_KEY);
+    peopleCollapsed = readCollapsed(RAIL_PEOPLE_KEY);
+    notifyPerm =
+      typeof Notification === 'undefined' ? 'unsupported' : (Notification.permission as 'default' | 'granted' | 'denied');
+
     mesh = new VoiceMesh(session);
     const offVoice = mesh.subscribe((next) => {
       const previousError = voice.error;
@@ -275,10 +515,39 @@
     });
     syncFromSession();
     const offs = [
-      session.on('history', () => syncFromSession()),
-      session.on('message', () => syncFromSession()),
-      session.on('presence', () => {
+      session.on('history', () => {
+        stickToBottom = true;
+        showJump = false;
         syncFromSession();
+        if (currentRoom) {
+          clearUnread(currentRoom);
+        }
+      }),
+      session.on('message', (message) => {
+        syncFromSession();
+        if (typeof document !== 'undefined' && document.hidden && message.room) {
+          bumpUnread(message.room);
+        } else if (message.room) {
+          void session.markRoomRead(message.room);
+        }
+        maybeNotify(message.room, message);
+      }),
+      session.on('roomActivity', ({ room, message }) => {
+        bumpUnread(room);
+        maybeNotify(room, message);
+      }),
+      session.on('callStarted', ({ room, user }) => {
+        if (user === session.getState().username) {
+          return;
+        }
+        if (room === session.getState().room) {
+          return;
+        }
+        callToast = { room, user };
+      }),
+      session.on('presence', () => {
+        const state = session.getState();
+        users = [...state.roomUsers].sort((a, b) => a.localeCompare(b));
         void loadDirectory();
       }),
       session.on('status', ({ status: next }) => {
@@ -290,6 +559,13 @@
         currentRoom = room;
       }),
     ];
+
+    const onVisibility = () => {
+      if (!document.hidden) {
+        void markFocusedRead();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     void (async () => {
       await Promise.all([loadRooms(), loadDirectory()]);
@@ -305,6 +581,7 @@
       offVoice();
       void mesh?.destroy();
       mesh = undefined;
+      document.removeEventListener('visibilitychange', onVisibility);
       for (const off of offs) {
         off();
       }
@@ -312,46 +589,102 @@
   });
 </script>
 
-<div class="shell">
-  <aside class="rail">
-    <div class="rail-heading">rooms</div>
-    {#if rooms.length === 0}
-      <p class="empty-hint">No rooms yet.</p>
-    {:else}
-      <ul class="room-list">
-        {#each rooms as room (room.id)}
-          <li>
-            <button
-              type="button"
-              class:active={room.slug === currentRoom}
-              onclick={() => selectRoom(room.slug)}
-            >
-              {#if isDm(room)}
-                <span class="hash">@</span>{roomTitle(room)}
-              {:else}
-                <span class="hash">#</span>{roomTitle(room)}
-              {/if}
-            </button>
-          </li>
-        {/each}
-      </ul>
+<svelte:head>
+  <title>{tabTitle}</title>
+</svelte:head>
+
+<div
+  class="shell"
+  class:rooms-collapsed={roomsCollapsed}
+  class:people-collapsed={peopleCollapsed}
+>
+  <aside class="rail rooms-rail">
+    <div class="rail-heading">
+      <button
+        type="button"
+        class="rail-toggle"
+        aria-expanded={!roomsCollapsed}
+        onclick={() => setCollapsed('rooms', !roomsCollapsed)}
+      >
+        {roomsCollapsed ? '›' : '‹'}
+      </button>
+      {#if !roomsCollapsed}
+        <span>rooms</span>
+      {/if}
+    </div>
+    {#if !roomsCollapsed}
+      <div class="rail-heading sub">Rooms</div>
+      {#if groupRooms.length === 0}
+        <p class="empty-hint">No rooms yet.</p>
+      {:else}
+        <ul class="room-list">
+          {#each groupRooms as room (room.id)}
+            <li>
+              <button
+                type="button"
+                class:active={room.slug === currentRoom}
+                onclick={() => selectRoom(room.slug)}
+              >
+                <span class="room-label"><span class="hash">#</span>{roomTitle(room)}</span>
+                {#if formatUnread(room.unread_count)}
+                  <span class="unread">{formatUnread(room.unread_count)}</span>
+                {/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      <div class="rail-heading sub">Direct messages</div>
+      {#if dmRooms.length === 0}
+        <p class="empty-hint">No DMs yet.</p>
+      {:else}
+        <ul class="room-list">
+          {#each dmRooms as room (room.id)}
+            {@const peer = lookupUser(roomTitle(room))}
+            <li class="dm-row">
+              <button
+                type="button"
+                class:active={room.slug === currentRoom}
+                onclick={() => selectRoom(room.slug)}
+              >
+                {#if peer}
+                  <Avatar user={peer} size="sm" />
+                {/if}
+                <span class="room-label"><span class="hash">@</span>{roomTitle(room)}</span>
+                {#if formatUnread(room.unread_count)}
+                  <span class="unread">{formatUnread(room.unread_count)}</span>
+                {/if}
+              </button>
+              <button
+                type="button"
+                class="row-x"
+                title="Close DM"
+                disabled={leaving}
+                onclick={() => leaveSlug(room.slug)}
+              >
+                ×
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      <form
+        class="new-room"
+        onsubmit={(event) => {
+          event.preventDefault();
+          void createGroup();
+        }}
+      >
+        <input
+          type="text"
+          placeholder="New room"
+          bind:value={newRoomName}
+          disabled={creatingRoom}
+          maxlength="80"
+        />
+        <button type="submit" disabled={creatingRoom || !newRoomName.trim()}>Create</button>
+      </form>
     {/if}
-    <form
-      class="new-room"
-      onsubmit={(event) => {
-        event.preventDefault();
-        void createGroup();
-      }}
-    >
-      <input
-        type="text"
-        placeholder="New room"
-        bind:value={newRoomName}
-        disabled={creatingRoom}
-        maxlength="80"
-      />
-      <button type="submit" disabled={creatingRoom || !newRoomName.trim()}>Create</button>
-    </form>
   </aside>
 
   <section class="center">
@@ -367,6 +700,11 @@
           Hermes
         {/if}
       </h2>
+      {#if currentRoom && currentRoom !== 'general' && !isDm(currentRoomRecord())}
+        <button type="button" class="leave-room" disabled={leaving} onclick={() => leaveSlug(currentRoom as string)}>
+          Leave
+        </button>
+      {/if}
       {#if currentRoom && !voice.room}
         <button
           type="button"
@@ -377,11 +715,19 @@
           {voice.joining ? 'Joining…' : 'Join call'}
         </button>
       {/if}
+      {#if notifyPerm === 'default'}
+        <button type="button" class="notify-btn" onclick={() => askNotify()}>Enable notifications</button>
+      {/if}
       <span class="status {status}">
         <span class="status-dot"></span>
         {statusLabel(status)}
       </span>
-      {#if username}
+      {#if me}
+        <a class="whoami" href="/profile">
+          <Avatar user={me} size="sm" />
+          <span class={colorClass(me.color)}>{me.username}</span>
+        </a>
+      {:else if username}
         <a class="whoami" href="/profile">{username}</a>
       {/if}
       <button type="button" class="sign-out" onclick={onSignOut}>Sign out</button>
@@ -394,6 +740,7 @@
         muted={voice.muted}
         joining={voice.joining}
         peers={voice.peers}
+        directory={directory}
         error={voice.error}
         onMute={(muted) => mesh?.setMuted(muted)}
         onLeave={() => mesh?.leave()}
@@ -405,29 +752,30 @@
       />
     {/if}
 
-    <div class="messages" bind:this={scroller}>
-      {#if banner}
-        <p class="banner" class:error={bannerError}>{banner}</p>
-      {/if}
-      {#if messages.length === 0}
-        <p class="empty-hint">No messages yet.</p>
-      {:else}
-        {#each messages as message (message.id)}
-          <article class="message">
-            <div class="meta">
-              <span class="sender">{message.sender}</span>
-              <time datetime={message.created_at}>{formatTime(message.created_at)}</time>
-            </div>
-            <p class="body">{message.content}</p>
-            {#if message.file_id != null && message.file_id !== ''}
-              <button type="button" class="file-action" onclick={() => onDownload(message)}>
-                Download {message.content || `file ${message.file_id}`}
-              </button>
-            {/if}
-          </article>
-        {/each}
-      {/if}
+    <div class="messages" bind:this={scroller} onscroll={onTranscriptScroll}>
+      <div class="messages-body">
+        {#if banner}
+          <p class="banner" class:error={bannerError}>{banner}</p>
+        {/if}
+        {#if messages.length === 0}
+          <p class="empty-hint">No messages yet.</p>
+        {:else}
+          {#each messageGroups as group (group.messages[0]?.id)}
+            <MessageGroup
+              messages={group.messages}
+              sender={group.messages[0] ? lookupUser(group.messages[0].sender) : undefined}
+              users={directory}
+              showName={group.showName}
+              {onDownload}
+            />
+          {/each}
+        {/if}
+      </div>
     </div>
+
+    {#if showJump}
+      <button type="button" class="jump-latest" onclick={jumpToLatest}>Jump to latest</button>
+    {/if}
 
     <form
       class="composer"
@@ -435,6 +783,8 @@
         event.preventDefault();
         void send();
       }}
+      ondragover={(event) => event.preventDefault()}
+      ondrop={onComposerDrop}
     >
       <input type="file" hidden bind:this={fileInput} onchange={onFilePicked} />
       <button
@@ -448,47 +798,87 @@
       <textarea
         rows="1"
         placeholder={composerHint()}
+        bind:this={composer}
         bind:value={draft}
-        disabled={sending || !currentRoom}
+        disabled={!currentRoom}
         onkeydown={onComposerKey}
+        onpaste={onComposerPaste}
       ></textarea>
       <button class="send" type="submit" disabled={sending || !currentRoom || (!draft.trim() && !pendingFile)}>
         Send
       </button>
       {#if pendingFile}
-        <span class="attach-name">{pendingFile.name}</span>
+        <span class="attach-chip">
+          {pendingFile.name}
+          <button type="button" class="row-x" onclick={clearPendingFile} title="Remove file">×</button>
+        </span>
       {/if}
     </form>
   </section>
 
   <aside class="rail people">
-    <div class="rail-heading">people</div>
-    {#if directory.length === 0}
-      <p class="empty-hint">Nobody here yet.</p>
-    {:else}
-      <ul class="people-list">
-        {#each directory as person (person.id)}
-          <li>
-            {#if person.username === username}
-              <span class="self">
-                <span class="status-dot" class:open={online.includes(person.username)}></span>
-                {person.username}
-                <span class="you">you</span>
-              </span>
-            {:else}
-              <button
-                type="button"
-                class:active={currentRoomRecord() && isDm(currentRoomRecord()) && roomTitle(currentRoomRecord()) === person.username}
-                disabled={startingDm != null}
-                onclick={() => startDm(person)}
-              >
-                <span class="status-dot" class:open={online.includes(person.username) || users.includes(person.username)}></span>
-                {person.username}
-              </button>
-            {/if}
-          </li>
-        {/each}
-      </ul>
+    <div class="rail-heading">
+      {#if !peopleCollapsed}
+        <span>people</span>
+      {/if}
+      <button
+        type="button"
+        class="rail-toggle"
+        aria-expanded={!peopleCollapsed}
+        onclick={() => setCollapsed('people', !peopleCollapsed)}
+      >
+        {peopleCollapsed ? '‹' : '›'}
+      </button>
+    </div>
+    {#if !peopleCollapsed}
+      {#if people.length === 0}
+        <p class="empty-hint">Nobody here yet.</p>
+      {:else}
+        <ul class="people-list">
+          {#each people as person (person.id)}
+            <li>
+              {#if person.username === username}
+                <span class="self">
+                  <span class="status-dot" class:open={isOnline(person.username)}></span>
+                  <UserChip user={person} />
+                  <span class="role-label">{person.role ?? 'member'}</span>
+                  <span class="you">you</span>
+                </span>
+              {:else}
+                <button
+                  type="button"
+                  class:active={currentRoomRecord() &&
+                    isDm(currentRoomRecord()) &&
+                    roomTitle(currentRoomRecord()) === person.username}
+                  disabled={startingDm != null}
+                  onclick={() => startDm(person)}
+                >
+                  <span class="status-dot" class:open={isOnline(person.username)}></span>
+                  <UserChip user={person} />
+                  <span class="role-label">{person.role ?? 'member'}</span>
+                </button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
   </aside>
 </div>
+
+{#if callToast}
+  <div class="call-toast">
+    <p>
+      {callToast.user} started a call in
+      {#if isDm(rooms.find((room) => room.slug === callToast?.room))}
+        @{roomTitle(rooms.find((room) => room.slug === callToast?.room))}
+      {:else}
+        #{roomTitle(rooms.find((room) => room.slug === callToast?.room)) || callToast.room}
+      {/if}
+    </p>
+    <div class="call-toast-actions">
+      <button type="button" onclick={() => joinToast()}>Join</button>
+      <button type="button" class="secondary" onclick={() => (callToast = null)}>Dismiss</button>
+    </div>
+  </div>
+{/if}

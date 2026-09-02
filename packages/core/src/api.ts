@@ -99,6 +99,24 @@ export class HermesApi {
     return this.readJson<RoomRecord>(response, 'Create DM', true);
   }
 
+  async leaveRoom(room: string, token: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/rooms/leave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ room }),
+    });
+    await this.readJson<{ ok?: boolean }>(response, 'Leave room', true);
+  }
+
+  async markRoomRead(room: string, token: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/rooms/read`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ room }),
+    });
+    await this.readJson<{ ok?: boolean }>(response, 'Mark room read', true);
+  }
+
   async logout(token: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/auth/logout`, {
       method: 'POST',
@@ -122,6 +140,15 @@ export class HermesApi {
       body: JSON.stringify({ current_password: currentPassword, password }),
     });
     await this.readJson<{ ok?: boolean }>(response, 'Change password', false);
+  }
+
+  async setColor(color: string, token: string): Promise<PublicUser> {
+    const response = await fetch(`${this.baseUrl}/users/me`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ color }),
+    });
+    return this.readJson<PublicUser>(response, 'Set color', true);
   }
 
   async uploadAvatar(file: Blob, filename: string, token: string): Promise<PublicUser> {
@@ -209,5 +236,24 @@ export class HermesApi {
     const bytes = new Uint8Array(await response.arrayBuffer());
     await this.files.writeFile(destination, bytes);
     return destination;
+  }
+
+  async fetchFile(fileId: string, token: string): Promise<{ bytes: Uint8Array; mime: string }> {
+    const response = await fetch(`${this.baseUrl}/files/${encodeURIComponent(fileId)}`, {
+      headers: this.authHeaders(token),
+    });
+
+    if (response.status === 401) {
+      const text = await response.text();
+      throw new AuthError(`Fetch file failed: 401 ${text}`.trim());
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Fetch file failed: ${response.status} ${text}`);
+    }
+
+    const mime = response.headers.get('content-type') || 'application/octet-stream';
+    return { bytes: new Uint8Array(await response.arrayBuffer()), mime };
   }
 }

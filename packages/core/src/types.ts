@@ -4,6 +4,7 @@ export interface UserPayload {
   id?: number;
   username: string;
   role?: UserRole;
+  color?: string | null;
 }
 
 export interface AuthResponse {
@@ -30,6 +31,7 @@ export interface FileRecord {
   name?: string;
   filename?: string;
   size?: number;
+  mime?: string;
 }
 
 export interface FileUploadResponse {
@@ -48,6 +50,7 @@ export interface PublicUser {
   username: string;
   role?: UserRole;
   avatar_file_id?: number | null;
+  color?: string | null;
 }
 
 export interface RoomRecord {
@@ -57,6 +60,7 @@ export interface RoomRecord {
   type?: string;
   created_at?: string;
   members?: string[];
+  unread_count?: number;
 }
 
 export interface ClientState {

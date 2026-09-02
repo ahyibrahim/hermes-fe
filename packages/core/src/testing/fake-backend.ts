@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
+import { isUserColor, nextUserColor } from '../colors.js';
 import { MessageRecord, PublicUser, RoomRecord } from '../types.js';
 
 export interface FakeBackend {
@@ -18,6 +19,7 @@ interface StoredUser {
   password: string;
   role: 'member' | 'admin';
   avatarFileId: number | null;
+  color: string;
 }
 
 interface RoomState extends RoomRecord {
@@ -120,6 +122,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   const files = new Map<number, StoredFile>();
   const clients = new Set<Client>();
   const callMembers = new Map<string, Set<string>>();
+  const reads = new Map<string, number>();
   let nextMessageId = 1;
   let nextFileId = 1;
   let nextToken = 1;
@@ -154,17 +157,52 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         username,
         role: user.role,
         avatar_file_id: user.avatarFileId,
+        color: user.color,
       }))
       .sort((a, b) => a.username.localeCompare(b.username));
 
   const profileOf = (username: string): PublicUser | undefined =>
     publicUsers().find((user) => user.username === username);
 
+  const readKey = (username: string, room: string): string => `${username}\0${room}`;
+
+  const unreadCount = (username: string, room: string): number => {
+    const last = reads.get(readKey(username, room)) ?? 0;
+    return messages.filter((message) => message.room === room && message.id > last).length;
+  };
+
+  const markRead = (username: string, room: string): void => {
+    const maxId = messages
+      .filter((message) => message.room === room)
+      .reduce((max, message) => Math.max(max, message.id), 0);
+    reads.set(readKey(username, room), maxId);
+  };
+
   const broadcast = (room: string, payload: unknown, except?: WebSocket): void => {
     const data = JSON.stringify(payload);
     for (const client of clients) {
       if (client.room === room && client.socket !== except && client.socket.readyState === WebSocket.OPEN) {
         client.socket.send(data);
+      }
+    }
+  };
+
+  const broadcastToMembers = (roomSlug: string, payload: unknown, exceptUser?: string): void => {
+    const room = rooms.get(roomSlug);
+    if (!room) {
+      return;
+    }
+    const data = JSON.stringify(payload);
+    const sent = new Set<WebSocket>();
+    for (const member of room.members) {
+      if (exceptUser && member === exceptUser) {
+        continue;
+      }
+      for (const client of socketsFor(member)) {
+        if (!sent.has(client.socket)) {
+          client.socket.send(data);
+          sent.add(client.socket);
+        }
       }
     }
   };
@@ -259,11 +297,12 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           password,
           role: users.size === 0 ? 'admin' : 'member',
           avatarFileId: null,
+          color: nextUserColor([...users.values()].map((user) => user.color)),
         });
         addToGeneral(username);
         const created = users.get(username);
         sendJson(res, 200, {
-          user: { id: created?.id, username, role: created?.role },
+          user: { id: created?.id, username, role: created?.role, color: created?.color },
         });
         return;
       }
@@ -326,8 +365,29 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         const body = JSON.parse((await readBody(req)).toString()) as {
           current_password?: string;
           password?: string;
+          color?: string;
         };
         const user = users.get(username);
+        if (!user) {
+          sendJson(res, 401, { error: 'authentication required' });
+          return;
+        }
+        if (typeof body.color === 'string') {
+          if (!isUserColor(body.color)) {
+            sendJson(res, 400, { error: 'color is not in the palette' });
+            return;
+          }
+          const taken = new Set(
+            [...users.values()].filter((entry) => entry.id !== user.id).map((entry) => entry.color)
+          );
+          if (taken.has(body.color) && user.color !== body.color) {
+            sendJson(res, 409, { error: 'color is taken' });
+            return;
+          }
+          user.color = body.color;
+          sendJson(res, 200, profileOf(username));
+          return;
+        }
         if (!user || user.password !== body.current_password) {
           sendJson(res, 401, { error: 'invalid credentials' });
           return;
@@ -437,6 +497,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
               name: room.name,
               type: room.type ?? 'group',
               members: [...new Set([...room.members, ...connectedUsers(room.slug)])],
+              unread_count: unreadCount(username, room.slug),
             }))
         );
         return;
@@ -510,6 +571,12 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         const slug = `dm:${pair[0]}:${pair[1]}`;
         const existing = rooms.get(slug);
         if (existing) {
+          if (!existing.members.includes(username)) {
+            existing.members.push(username);
+          }
+          if (!existing.members.includes(other)) {
+            existing.members.push(other);
+          }
           sendJson(res, 200, {
             id: existing.id,
             slug: existing.slug,
@@ -537,12 +604,54 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         return;
       }
 
+      if (method === 'POST' && url.pathname === '/rooms/leave') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as { room?: string };
+        const slug = body.room?.trim() ?? '';
+        if (!slug) {
+          sendJson(res, 400, { error: 'room is required' });
+          return;
+        }
+        if (slug === 'general') {
+          sendJson(res, 400, { error: 'cannot leave general' });
+          return;
+        }
+        const room = rooms.get(slug);
+        if (!room?.members.includes(username)) {
+          sendJson(res, 403, { error: 'not a member of that room' });
+          return;
+        }
+        room.members = room.members.filter((member) => member !== username);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (method === 'POST' && url.pathname === '/rooms/read') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as { room?: string };
+        const slug = body.room?.trim() ?? '';
+        if (!slug) {
+          sendJson(res, 400, { error: 'room is required' });
+          return;
+        }
+        markRead(username, slug);
+        sendJson(res, 200, { ok: true, room: slug, unread_count: 0 });
+        return;
+      }
+
       if (method === 'GET' && url.pathname === '/messages') {
         const username = requireUser(req, res);
         if (!username) {
           return;
         }
         const room = url.searchParams.get('room') ?? 'general';
+        markRead(username, room);
         sendJson(
           res,
           200,
@@ -580,7 +689,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           created_at: new Date().toISOString(),
         };
         messages.push(message);
-        broadcast(room.slug, { type: 'message', message });
+        broadcastToMembers(room.slug, { type: 'message', message });
         sendJson(res, 200, message);
         return;
       }
@@ -598,7 +707,12 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         const fileId = nextFileId++;
-        files.set(fileId, { id: fileId, name: parsed.file.filename, data: parsed.file.data });
+        files.set(fileId, {
+          id: fileId,
+          name: parsed.file.filename,
+          data: parsed.file.data,
+          mime: 'application/octet-stream',
+        });
         const message: MessageRecord = {
           id: nextMessageId++,
           room: roomSlug,
@@ -608,7 +722,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           file_id: fileId,
         };
         messages.push(message);
-        broadcast(roomSlug, { type: 'message', message });
+        broadcastToMembers(roomSlug, { type: 'message', message });
         sendJson(res, 200, {
           file: { id: fileId, room: roomSlug, name: parsed.file.filename, filename: parsed.file.filename },
           message,
@@ -628,7 +742,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         res.writeHead(200, {
-          'Content-Type': 'application/octet-stream',
+          'Content-Type': file.mime || 'application/octet-stream',
           'Content-Length': file.data.length,
         });
         res.end(file.data);
@@ -704,6 +818,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
             room.members.push(user);
           }
           client.room = room.slug;
+          markRead(user, room.slug);
           ws.send(JSON.stringify({ type: 'joined_room', room: room.slug }));
           ws.send(JSON.stringify({ type: 'room_users', room: room.slug, users: connectedUsers(room.slug) }));
           broadcast(room.slug, { type: 'user_joined', room: room.slug, user }, ws);
@@ -729,11 +844,16 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           if (!callMembers.has(roomSlug)) {
             callMembers.set(roomSlug, new Set());
           }
-          const already = callMembers.get(roomSlug)?.has(user) === true;
-          callMembers.get(roomSlug)?.add(user);
+          const roster = callMembers.get(roomSlug) as Set<string>;
+          const wasEmpty = roster.size === 0;
+          const already = roster.has(user);
+          roster.add(user);
           ws.send(JSON.stringify({ type: 'call_peers', room: roomSlug, users: callRoster(roomSlug) }));
           if (!already) {
             broadcastCall(roomSlug, { type: 'user_joined_call', room: roomSlug, user }, user);
+            if (wasEmpty) {
+              broadcastToMembers(roomSlug, { type: 'call_started', room: roomSlug, user }, user);
+            }
           }
           return;
         }
@@ -804,6 +924,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           password,
           role: users.size === 0 ? 'admin' : 'member',
           avatarFileId: null,
+          color: nextUserColor([...users.values()].map((user) => user.color)),
         });
       } else {
         const existing = users.get(name);

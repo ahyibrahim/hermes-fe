@@ -1,5 +1,7 @@
 <script lang="ts">
+  import type { PublicUser } from '@hermes/core';
   import type { VoicePeer } from '$lib/voice/mesh';
+  import UserChip from '$lib/components/UserChip.svelte';
 
   let {
     roomLabel,
@@ -7,6 +9,7 @@
     muted,
     joining,
     peers,
+    directory = [],
     error,
     onMute,
     onLeave,
@@ -17,11 +20,16 @@
     muted: boolean;
     joining: boolean;
     peers: VoicePeer[];
+    directory?: PublicUser[];
     error: string | null;
     onMute: (muted: boolean) => void;
     onLeave: () => void;
     onShowRoom: () => void;
   } = $props();
+
+  function lookup(name: string): PublicUser | undefined {
+    return directory.find((person) => person.username === name);
+  }
 </script>
 
 <div class="call-bar">
@@ -35,7 +43,14 @@
   </div>
   <ul class="call-peers">
     {#each peers as peer (peer.username)}
-      <li class:speaking={peer.speaking}>{peer.username}</li>
+      {@const person = lookup(peer.username)}
+      <li class:speaking={peer.speaking}>
+        {#if person}
+          <UserChip user={person} size="sm" />
+        {:else}
+          {peer.username}
+        {/if}
+      </li>
     {/each}
   </ul>
   <div class="call-actions">
