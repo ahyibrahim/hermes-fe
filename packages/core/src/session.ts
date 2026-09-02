@@ -32,6 +32,8 @@ export type SessionEventMap = {
   callOffer: { room: string; from: string; sdp: SessionDescriptionPayload };
   callAnswer: { room: string; from: string; sdp: SessionDescriptionPayload };
   iceCandidate: { room: string; from: string; candidate: IceCandidatePayload | null };
+  roomActivity: { room: string; message: MessageRecord };
+  callStarted: { room: string; user: string };
 };
 
 type SessionListener<K extends keyof SessionEventMap> = (payload: SessionEventMap[K]) => void;
@@ -230,6 +232,27 @@ export class SessionController {
     return this.withAuth('rest', () => this.api.createDm(userId, this.state.token as string));
   }
 
+  async leaveRoom(slug: string): Promise<void> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    await this.withAuth('rest', () => this.api.leaveRoom(slug, this.state.token as string));
+  }
+
+  async markRoomRead(slug: string): Promise<void> {
+    if (!this.state.token) {
+      return;
+    }
+    await this.withAuth('rest', () => this.api.markRoomRead(slug, this.state.token as string));
+  }
+
+  async setColor(color: string): Promise<PublicUser> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.setColor(color, this.state.token as string));
+  }
+
   async logout(): Promise<void> {
     const token = this.state.token;
     if (token) {
@@ -382,6 +405,13 @@ export class SessionController {
     return saved;
   }
 
+  async fetchFile(fileId: string): Promise<{ bytes: Uint8Array; mime: string }> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.fetchFile(fileId, this.state.token as string));
+  }
+
   async getIce(): Promise<IceConfig> {
     if (!this.state.token) {
       throw new Error('Please login first.');
@@ -447,7 +477,12 @@ export class SessionController {
       }
 
       if (payload.type === 'message' && payload.message) {
-        this.displayMessage(payload.message);
+        const incoming = payload.message;
+        if (incoming.room && incoming.room !== this.state.room) {
+          this.emit('roomActivity', { room: incoming.room, message: incoming });
+          return;
+        }
+        this.displayMessage(incoming);
         return;
       }
 
@@ -559,6 +594,11 @@ export class SessionController {
   }
 
   private handleCall(payload: WsIncomingMessage): boolean {
+    if (payload.type === 'call_started' && payload.room && payload.user) {
+      this.emit('callStarted', { room: payload.room, user: payload.user });
+      return true;
+    }
+
     if (payload.type === 'call_peers' && payload.room && Array.isArray(payload.users)) {
       this.emit('callPeers', { room: payload.room, users: payload.users });
       return true;
