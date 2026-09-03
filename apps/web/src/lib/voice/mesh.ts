@@ -11,11 +11,18 @@ export type VoicePeer = {
   connectionState: RTCPeerConnectionState;
 };
 
+export type VoiceMic = {
+  deviceId: string;
+  label: string;
+};
+
 export type VoiceState = {
   room: string | null;
   joining: boolean;
   muted: boolean;
   peers: VoicePeer[];
+  mics: VoiceMic[];
+  inputDeviceId: string | null;
   error: string | null;
 };
 
@@ -28,6 +35,23 @@ type PeerSlot = {
 
 const SPEAKING_THRESHOLD = 18;
 const SPEAK_POLL_MS = 120;
+const INPUT_DEVICE_KEY = 'hermes.voice.inputDevice';
+
+function readStoredInputDevice(): string | null {
+  try {
+    return localStorage.getItem(INPUT_DEVICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredInputDevice(deviceId: string): void {
+  try {
+    localStorage.setItem(INPUT_DEVICE_KEY, deviceId);
+  } catch {
+    // Private-mode quota should not break the call.
+  }
+}
 
 function asDescription(sdp: SessionDescriptionPayload): RTCSessionDescriptionInit {
   return { type: sdp.type, sdp: sdp.sdp };
@@ -57,12 +81,17 @@ export class VoiceMesh {
   private unsubscribers: Array<() => void> = [];
   private listeners = new Set<(state: VoiceState) => void>();
   private reconnecting = false;
+  private onDeviceChange = (): void => {
+    void this.handleDeviceChange();
+  };
 
   state: VoiceState = {
     room: null,
     joining: false,
     muted: false,
     peers: [],
+    mics: [],
+    inputDeviceId: readStoredInputDevice(),
     error: null,
   };
 
@@ -101,12 +130,14 @@ export class VoiceMesh {
         );
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await this.captureAudio(this.state.inputDeviceId);
       this.localStream = stream;
       this.applyMute();
       this.watchStream('local', stream);
+      this.bindDeviceWatch();
+      await this.refreshMics();
 
-      this.setState({ room });
+      this.setState({ room, inputDeviceId: stream.getAudioTracks()[0]?.getSettings().deviceId || this.state.inputDeviceId });
       await this.session.joinCall(room);
       this.startSpeakPoll();
     } catch (error) {
@@ -128,7 +159,7 @@ export class VoiceMesh {
     const room = this.state.room;
     this.teardownPeers();
     this.stopLocal();
-    this.setState({ room: null, joining: false, muted: false, peers: [], error: null });
+    this.setState({ room: null, joining: false, muted: false, peers: [], mics: [], error: null });
     if (room) {
       try {
         await this.session.leaveCall(room);
@@ -141,6 +172,25 @@ export class VoiceMesh {
   setMuted(muted: boolean): void {
     this.setState({ muted });
     this.applyMute();
+  }
+
+  async setInputDevice(deviceId: string): Promise<void> {
+    if (!this.state.room || this.state.joining) {
+      writeStoredInputDevice(deviceId);
+      this.setState({ inputDeviceId: deviceId });
+      return;
+    }
+    try {
+      const stream = await this.captureAudio(deviceId, true);
+      await this.replaceLocalAudio(stream);
+      writeStoredInputDevice(deviceId);
+      this.setState({ inputDeviceId: deviceId, error: null });
+      await this.refreshMics();
+    } catch (error) {
+      this.setState({
+        error: error instanceof Error ? error.message : 'Could not switch microphone.',
+      });
+    }
   }
 
   async destroy(): Promise<void> {
@@ -183,7 +233,7 @@ export class VoiceMesh {
         if (room === this.state.room && !this.state.joining) {
           this.teardownPeers();
           this.stopLocal();
-          this.setState({ room: null, joining: false, muted: false, peers: [] });
+          this.setState({ room: null, joining: false, muted: false, peers: [], mics: [] });
         }
       }),
       this.session.on('callOffer', ({ room, from, sdp }) => {
@@ -253,6 +303,9 @@ export class VoiceMesh {
         pc.addTrack(track, this.localStream);
       }
     }
+
+    // Future video or screen-share tracks should addTrack here and let
+    // onnegotiationneeded renegotiate. Do not stand up a second mesh.
 
     pc.onicecandidate = (event) => {
       const room = this.state.room;
@@ -411,7 +464,91 @@ export class VoiceMesh {
     }
   }
 
+  private async captureAudio(deviceId: string | null, exact = false): Promise<MediaStream> {
+    const audio: boolean | MediaTrackConstraints = deviceId
+      ? { deviceId: exact ? { exact: deviceId } : { ideal: deviceId } }
+      : true;
+    return navigator.mediaDevices.getUserMedia({ audio, video: false });
+  }
+
+  private async replaceLocalAudio(stream: MediaStream): Promise<void> {
+    const nextTrack = stream.getAudioTracks()[0];
+    if (!nextTrack) {
+      throw new Error('That microphone did not produce an audio track.');
+    }
+    const previous = this.localStream;
+    this.localStream = stream;
+    this.applyMute();
+    this.watchStream('local', stream);
+    for (const slot of this.peers.values()) {
+      const audioSender =
+        slot.pc.getSenders().find((item) => item.track?.kind === 'audio') ??
+        slot.pc.getSenders().find((item) => !item.track);
+      if (audioSender) {
+        await audioSender.replaceTrack(nextTrack);
+      } else {
+        slot.pc.addTrack(nextTrack, stream);
+      }
+    }
+    for (const track of previous?.getAudioTracks() ?? []) {
+      track.stop();
+    }
+  }
+
+  private async refreshMics(): Promise<void> {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      this.setState({ mics: [] });
+      return;
+    }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices
+      .filter((device) => device.kind === 'audioinput')
+      .map((device) => ({
+        deviceId: device.deviceId,
+        label: device.label.trim() || 'Microphone',
+      }));
+    const current = this.localStream?.getAudioTracks()[0]?.getSettings().deviceId ?? this.state.inputDeviceId;
+    this.setState({ mics, inputDeviceId: current || this.state.inputDeviceId });
+  }
+
+  private bindDeviceWatch(): void {
+    navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange);
+  }
+
+  private unbindDeviceWatch(): void {
+    navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDeviceChange);
+  }
+
+  private async handleDeviceChange(): Promise<void> {
+    if (!this.state.room) {
+      return;
+    }
+    await this.refreshMics();
+    const current = this.state.inputDeviceId;
+    if (current && this.state.mics.some((mic) => mic.deviceId === current)) {
+      return;
+    }
+    try {
+      const stream = await this.captureAudio(null);
+      await this.replaceLocalAudio(stream);
+      const fallback = stream.getAudioTracks()[0]?.getSettings().deviceId || null;
+      if (fallback) {
+        writeStoredInputDevice(fallback);
+      }
+      this.setState({
+        inputDeviceId: fallback,
+        error: 'That microphone went away. Switched to another input.',
+      });
+      await this.refreshMics();
+    } catch (error) {
+      this.setState({
+        error: error instanceof Error ? error.message : 'Microphone disappeared.',
+      });
+    }
+  }
+
   private stopLocal(): void {
+    this.unbindDeviceWatch();
     if (this.speakTimer) {
       clearInterval(this.speakTimer);
       this.speakTimer = null;
@@ -504,6 +641,8 @@ export class VoiceMesh {
       joining: this.state.joining,
       muted: this.state.muted,
       peers: [...this.state.peers],
+      mics: [...this.state.mics],
+      inputDeviceId: this.state.inputDeviceId,
       error: this.state.error,
     };
   }
