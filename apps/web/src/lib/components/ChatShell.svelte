@@ -1,8 +1,7 @@
 <script lang="ts">
   import type { ConnectionStatus, MessageRecord, PublicUser, RoomRecord } from '@hermes/core';
   import { groupTranscript } from '@hermes/core';
-  import { goto } from '$app/navigation';
-  import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
+  import { downloadAttachment, getFileIO, getSession } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
   import CallBar from '$lib/components/CallBar.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
@@ -13,6 +12,7 @@
     clearDraft,
     colorClass,
     formatUnread,
+    isSystemUser,
     loadDraft,
     RAIL_PEOPLE_KEY,
     RAIL_ROOMS_KEY,
@@ -58,6 +58,8 @@
     joining: false,
     muted: false,
     peers: [],
+    mics: [],
+    inputDeviceId: null,
     error: null,
   });
   let mesh: VoiceMesh | undefined;
@@ -69,14 +71,16 @@
   const groupRooms = $derived(rooms.filter((room) => !isDm(room)));
   const dmRooms = $derived(rooms.filter((room) => isDm(room)));
   const people = $derived(
-    [...directory].sort((a, b) => {
-      const ao = isOnline(a.username) ? 0 : 1;
-      const bo = isOnline(b.username) ? 0 : 1;
-      if (ao !== bo) {
-        return ao - bo;
-      }
-      return a.username.localeCompare(b.username);
-    })
+    [...directory]
+      .filter((person) => !isSystemUser(person))
+      .sort((a, b) => {
+        const ao = isOnline(a.username) ? 0 : 1;
+        const bo = isOnline(b.username) ? 0 : 1;
+        if (ao !== bo) {
+          return ao - bo;
+        }
+        return a.username.localeCompare(b.username);
+      })
   );
   const notifyOn = $derived(notifyPerm === 'granted' && !notifyMuted);
   const transcriptRows = $derived(groupTranscript(messages));
@@ -395,7 +399,7 @@
   }
 
   async function startDm(user: PublicUser): Promise<void> {
-    if (user.username === username || startingDm != null) {
+    if (user.username === username || startingDm != null || isSystemUser(user)) {
       return;
     }
     startingDm = user.id;
@@ -584,12 +588,6 @@
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
     }
-  }
-
-  async function onSignOut(): Promise<void> {
-    await mesh?.leave();
-    await signOut();
-    await goto('/login');
   }
 
   async function joinToast(): Promise<void> {
@@ -900,7 +898,15 @@
           disabled={creatingRoom}
           maxlength="80"
         />
-        <button type="submit" disabled={creatingRoom || !newRoomName.trim()}>Create</button>
+        <IconButton
+          type="submit"
+          label="Create room"
+          tone="accent"
+          disabled={creatingRoom || !newRoomName.trim()}
+          busy={creatingRoom}
+        >
+          <IconGlyph name="plus" />
+        </IconButton>
       </form>
     {/if}
   </aside>
@@ -956,7 +962,6 @@
       {:else if username}
         <a class="whoami" href="/profile">{username}</a>
       {/if}
-      <button type="button" class="sign-out" onclick={onSignOut}>Sign out</button>
     </header>
 
     {#if voice.room}
@@ -967,9 +972,12 @@
         joining={voice.joining}
         peers={voice.peers}
         directory={directory}
+        mics={voice.mics}
+        inputDeviceId={voice.inputDeviceId}
         error={voice.error}
         onMute={(muted) => mesh?.setMuted(muted)}
         onLeave={() => mesh?.leave()}
+        onPickMic={(deviceId) => mesh?.setInputDevice(deviceId)}
         onShowRoom={() => {
           if (voice.room) {
             void selectRoom(voice.room);
@@ -1101,7 +1109,7 @@
                     <UserChip user={person} />
                     <span class="role-label">{person.role ?? 'member'}</span>
                   </button>
-                  {#if me?.role === 'admin'}
+                  {#if me?.role === 'admin' && !isSystemUser(person)}
                     <IconButton
                       label="Reset password for {person.username}"
                       title="Reset password"

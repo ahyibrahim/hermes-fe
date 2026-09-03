@@ -346,18 +346,8 @@ button {
   background: var(--bg-input);
 }
 
-.new-room button {
-  border: 0;
-  border-radius: 0.35rem;
-  padding: 0.35rem 0.55rem;
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 600;
-}
-
-.new-room button:disabled {
-  opacity: 0.5;
-  cursor: default;
+.new-room .icon-btn {
+  align-self: center;
 }
 
 .people-list li {
@@ -489,17 +479,45 @@ button {
 }
 
 .sign-out:hover {
-  color: var(--text);
+  color: var(--danger);
 }
 
-.call-bar {
+.profile-card .sign-out {
+  margin-top: 1rem;
+  align-self: flex-start;
+  padding: 0;
+  font-size: 0.9rem;
+  color: var(--danger);
+}
+
+.call-drawer {
+  display: grid;
+  grid-template-rows: 1fr;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-rail);
+  overflow: hidden;
+  animation: call-drawer-open 0.2s ease;
+}
+
+.call-drawer-inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.call-main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 0.5rem 0.75rem;
   align-items: center;
   padding: 0.45rem 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-rail);
+}
+
+.call-preview {
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 .call-meta {
@@ -534,52 +552,95 @@ button {
   text-align: left;
 }
 
-.call-peers {
+.call-avatars {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.45rem 0.65rem;
+  min-width: 0;
+  align-items: center;
+}
+
+.call-avatars li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
   min-width: 0;
 }
 
-.call-peers li {
-  font-size: 0.8rem;
+.call-avatar-name {
+  font-size: 0.75rem;
   color: var(--text-muted);
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: var(--bg-hover);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 6rem;
 }
 
-.call-peers li.speaking {
+.call-avatars li.speaking .avatar-face,
+.call-avatars li.speaking .call-avatar-name {
+  box-shadow: none;
   color: var(--text);
   font-weight: 650;
-  background: color-mix(in srgb, var(--status-open) 25%, var(--bg-hover));
+}
+
+.call-avatars li.speaking .avatar-face {
+  box-shadow: 0 0 0 2px var(--status-open);
 }
 
 .call-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem;
 }
 
-.call-btn {
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  border-radius: 0.35rem;
-  padding: 0.25rem 0.55rem;
+.call-mic-pick select {
+  max-width: 10rem;
   font-size: 0.8rem;
-}
-
-.call-btn.leave {
-  color: var(--danger);
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--bg-input);
+  color: var(--text);
 }
 
 .call-error {
-  grid-column: 1 / -1;
   margin: 0;
+  padding: 0 1rem 0.45rem;
   font-size: 0.8rem;
   color: var(--danger);
+}
+
+@keyframes call-drawer-open {
+  from {
+    transform: translateY(-0.6rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-drawer {
+    animation: none;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .messages {

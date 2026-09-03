@@ -5,7 +5,7 @@
   import AvatarCrop from '$lib/components/AvatarCrop.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import { forgetAvatar } from '$lib/ui';
-  import { getSession } from '$lib/client';
+  import { getSession, signOut } from '$lib/client';
   import { onMount } from 'svelte';
 
   let checking = $state(true);
@@ -114,6 +114,11 @@
     }
   }
 
+  async function onSignOut(): Promise<void> {
+    await signOut();
+    await goto('/login');
+  }
+
   async function onPickColor(color: string): Promise<void> {
     colorError = '';
     colorBusy = true;
@@ -213,6 +218,7 @@
         disabled={passwordBusy}
       />
       <button type="submit" disabled={passwordBusy}>{passwordBusy ? 'Please wait…' : 'Update password'}</button>
+      <button type="button" class="sign-out" onclick={onSignOut}>Sign out</button>
     </form>
   </div>
 {/if}

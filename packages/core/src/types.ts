@@ -58,6 +58,7 @@ export interface PublicUser {
   role?: UserRole;
   avatar_file_id?: number | null;
   color?: string | null;
+  system?: boolean;
 }
 
 export interface LastMessagePreview {

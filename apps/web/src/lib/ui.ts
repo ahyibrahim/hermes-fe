@@ -50,6 +50,10 @@ export function colorClass(color: string | null | undefined): string {
   return color ? `user-color-${color}` : '';
 }
 
+export function isSystemUser(user: PublicUser | null | undefined): boolean {
+  return Boolean(user?.system);
+}
+
 export function formatUnread(count: number | undefined): string {
   const n = count ?? 0;
   if (n <= 0) {

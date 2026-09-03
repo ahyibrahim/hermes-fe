@@ -20,6 +20,7 @@ interface StoredUser {
   role: 'member' | 'admin';
   avatarFileId: number | null;
   color: string;
+  system?: boolean;
 }
 
 interface RoomState extends RoomRecord {
@@ -160,6 +161,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         role: user.role,
         avatar_file_id: user.avatarFileId,
         color: user.color,
+        system: Boolean(user.system),
       }))
       .sort((a, b) => a.username.localeCompare(b.username));
 
@@ -322,6 +324,10 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 400, { error: 'username and password are required' });
           return;
         }
+        if (username === 'hermes') {
+          sendJson(res, 409, { error: 'username is reserved' });
+          return;
+        }
         if (users.has(username)) {
           sendJson(res, 409, { error: 'username already exists' });
           return;
@@ -345,7 +351,8 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         const body = JSON.parse((await readBody(req)).toString()) as { username?: string; password?: string };
         const username = body.username?.trim().toLowerCase() ?? '';
         const password = body.password ?? '';
-        if (users.get(username)?.password !== password) {
+        const stored = users.get(username);
+        if (!stored || stored.system || stored.password !== password) {
           sendJson(res, 401, { error: 'invalid credentials' });
           return;
         }
@@ -538,7 +545,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         const target = decodeURIComponent(resetMatch[1]).trim().toLowerCase();
-        if (!users.has(target)) {
+        if (!users.has(target) || users.get(target)?.system) {
           sendJson(res, 404, { error: 'user not found' });
           return;
         }
@@ -655,6 +662,10 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         }
         if (other === username) {
           sendJson(res, 400, { error: 'cannot DM yourself' });
+          return;
+        }
+        if (users.get(other)?.system) {
+          sendJson(res, 400, { error: 'cannot DM a system user' });
           return;
         }
         const pair = [username, other].sort((a, b) => a.localeCompare(b));

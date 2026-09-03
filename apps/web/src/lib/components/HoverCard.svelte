@@ -38,7 +38,7 @@
       <div class="hover-meta">
         <div class="hover-name {colorClass(user.color)}">{user.username}</div>
         <div class="hover-role">{user.role ?? 'member'}</div>
-        {#if onResetPassword}
+        {#if onResetPassword && !user.system}
           <button
             type="button"
             class="reset-pw"
