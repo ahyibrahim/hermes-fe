@@ -64,6 +64,7 @@ export function formatMessageTime(value: string): string {
 
 export const RAIL_ROOMS_KEY = 'hermes.rail.roomsCollapsed';
 export const RAIL_PEOPLE_KEY = 'hermes.rail.peopleCollapsed';
+export const NOTIFY_MUTE_KEY = 'hermes.notify.muted';
 
 function draftKey(slug: string): string {
   return `hermes.draft.${slug}`;
@@ -110,5 +111,25 @@ export function writeCollapsed(key: string, value: boolean): void {
     localStorage.setItem(key, value ? '1' : '0');
   } catch {
     // Private-mode quota should not break the rails.
+  }
+}
+
+export function readNotifyMuted(): boolean {
+  try {
+    return localStorage.getItem(NOTIFY_MUTE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function writeNotifyMuted(muted: boolean): void {
+  try {
+    if (muted) {
+      localStorage.setItem(NOTIFY_MUTE_KEY, '1');
+    } else {
+      localStorage.removeItem(NOTIFY_MUTE_KEY);
+    }
+  } catch {
+    // Private-mode quota should not break notifications.
   }
 }

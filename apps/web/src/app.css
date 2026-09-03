@@ -492,24 +492,6 @@ button {
   color: var(--text);
 }
 
-.join-call {
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  border-radius: 0.35rem;
-  padding: 0.25rem 0.55rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.join-call:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.join-call:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .call-bar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -695,18 +677,16 @@ button {
   word-break: break-word;
 }
 
-.file-action {
+.file-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   margin-top: 0.25rem;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 0.3rem;
-  padding: 0.2rem 0.5rem;
-  font-size: 0.8rem;
-  color: var(--accent);
 }
 
-.file-action:hover {
-  background: var(--bg-hover);
+.file-name {
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 .banner {
@@ -787,28 +767,20 @@ button {
   color: var(--danger);
 }
 
-.composer .icon-btn,
-.composer .send {
-  width: auto;
-  height: auto;
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  color: inherit;
-  border-radius: 0.4rem;
-  padding: 0.45rem 0.7rem;
+.icon-btn[aria-busy='true'] svg {
+  animation: icon-spin 0.8s linear infinite;
 }
 
-.composer .send {
-  background: var(--accent);
-  color: var(--accent-text);
-  border-color: transparent;
-  font-weight: 600;
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn[aria-busy='true'] svg {
+    animation: none;
+  }
 }
 
-.composer .send:disabled,
-.composer .icon-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
+@keyframes icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .attach-name {
@@ -950,8 +922,7 @@ button {
   color: var(--danger);
 }
 
-.leave-room,
-.notify-btn {
+.leave-room {
   border: 1px solid var(--border);
   background: var(--bg-input);
   border-radius: 0.35rem;
@@ -1077,13 +1048,14 @@ button {
 .jump-latest {
   position: relative;
   margin: -0.35rem auto 0.35rem;
-  border: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+}
+
+.jump-latest .icon-btn {
   background: var(--bg-card);
-  border-radius: 999px;
-  padding: 0.25rem 0.75rem;
-  font-size: 0.8rem;
-  font-weight: 600;
   box-shadow: var(--shadow);
+  border-radius: 999px;
 }
 
 .attach-chip {

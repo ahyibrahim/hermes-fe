@@ -8,6 +8,7 @@
     type = 'button',
     tone = 'ghost',
     pressed,
+    busy = false,
     onclick,
     children,
   }: {
@@ -17,6 +18,7 @@
     type?: 'button' | 'submit';
     tone?: 'ghost' | 'accent' | 'danger';
     pressed?: boolean;
+    busy?: boolean;
     onclick?: (event: MouseEvent) => void;
     children: Snippet;
   } = $props();
@@ -29,6 +31,7 @@
   {title}
   {disabled}
   aria-pressed={pressed}
+  aria-busy={busy || undefined}
   {onclick}
 >
   {@render children()}
