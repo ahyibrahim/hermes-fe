@@ -9,15 +9,17 @@
     showName = true,
     showAvatar = true,
     size = 'sm',
+    onResetPassword,
   }: {
     user: PublicUser;
     showName?: boolean;
     showAvatar?: boolean;
     size?: 'sm' | 'md' | 'lg';
+    onResetPassword?: (user: PublicUser) => void;
   } = $props();
 </script>
 
-<HoverCard {user}>
+<HoverCard {user} {onResetPassword}>
   <span class="user-chip">
     {#if showAvatar}
       <Avatar {user} {size} />

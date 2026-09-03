@@ -34,6 +34,8 @@ export type SessionEventMap = {
   iceCandidate: { room: string; from: string; candidate: IceCandidatePayload | null };
   roomActivity: { room: string; message: MessageRecord };
   callStarted: { room: string; user: string };
+  messageDeleted: MessageRecord;
+  userUpdated: PublicUser;
 };
 
 type SessionListener<K extends keyof SessionEventMap> = (payload: SessionEventMap[K]) => void;
@@ -237,6 +239,38 @@ export class SessionController {
       throw new Error('Please login first.');
     }
     await this.withAuth('rest', () => this.api.leaveRoom(slug, this.state.token as string));
+  }
+
+  async hideRoom(slug: string): Promise<void> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    await this.withAuth('rest', () => this.api.hideRoom(slug, this.state.token as string));
+  }
+
+  async unsendMessage(id: number): Promise<MessageRecord> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    const tombstone = await this.withAuth('rest', () =>
+      this.api.deleteMessage(id, this.state.token as string)
+    );
+    this.applyTombstone(tombstone);
+    return tombstone;
+  }
+
+  async issuePasswordReset(username: string): Promise<{ token: string; expires_at: string }> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.issuePasswordReset(username, this.state.token as string));
+  }
+
+  async redeemPasswordReset(username: string, token: string, password: string): Promise<void> {
+    const session = await this.api.redeemPasswordReset(username, token, password);
+    this.state.username = session.username;
+    this.state.token = session.token;
+    await this.tokens.save({ username: session.username, token: session.token });
   }
 
   async markRoomRead(slug: string): Promise<void> {
@@ -459,7 +493,7 @@ export class SessionController {
       }
 
       if (payload.type === 'connected') {
-        this.emit('connected', { user: payload.user ?? 'anonymous' });
+        this.emit('connected', { user: typeof payload.user === 'string' ? payload.user : 'anonymous' });
         return;
       }
 
@@ -483,6 +517,16 @@ export class SessionController {
           return;
         }
         this.displayMessage(incoming);
+        return;
+      }
+
+      if (payload.type === 'message_deleted' && payload.message) {
+        this.applyTombstone(payload.message);
+        return;
+      }
+
+      if (payload.type === 'user_updated' && payload.user && typeof payload.user === 'object') {
+        this.emit('userUpdated', payload.user as PublicUser);
         return;
       }
 
@@ -576,14 +620,14 @@ export class SessionController {
       return true;
     }
 
-    if (payload.type === 'user_joined' && payload.user && this.roomMatches(payload)) {
+    if (payload.type === 'user_joined' && typeof payload.user === 'string' && this.roomMatches(payload)) {
       if (this.addRoomUser(payload.user)) {
         this.emit('presence', { users: [...this.state.roomUsers] });
       }
       return true;
     }
 
-    if (payload.type === 'user_left' && payload.user && this.roomMatches(payload)) {
+    if (payload.type === 'user_left' && typeof payload.user === 'string' && this.roomMatches(payload)) {
       if (this.removeRoomUser(payload.user)) {
         this.emit('presence', { users: [...this.state.roomUsers] });
       }
@@ -594,7 +638,7 @@ export class SessionController {
   }
 
   private handleCall(payload: WsIncomingMessage): boolean {
-    if (payload.type === 'call_started' && payload.room && payload.user) {
+    if (payload.type === 'call_started' && payload.room && typeof payload.user === 'string') {
       this.emit('callStarted', { room: payload.room, user: payload.user });
       return true;
     }
@@ -604,12 +648,12 @@ export class SessionController {
       return true;
     }
 
-    if (payload.type === 'user_joined_call' && payload.room && payload.user) {
+    if (payload.type === 'user_joined_call' && payload.room && typeof payload.user === 'string') {
       this.emit('userJoinedCall', { room: payload.room, user: payload.user });
       return true;
     }
 
-    if (payload.type === 'user_left_call' && payload.room && payload.user) {
+    if (payload.type === 'user_left_call' && payload.room && typeof payload.user === 'string') {
       this.emit('userLeftCall', { room: payload.room, user: payload.user });
       return true;
     }
@@ -669,6 +713,19 @@ export class SessionController {
 
     this.state.messages.push(message);
     this.emit('message', message);
+  }
+
+  private applyTombstone(message: MessageRecord): void {
+    const index = this.state.messages.findIndex((row) => row.id === message.id);
+    if (index >= 0) {
+      this.state.messages[index] = { ...this.state.messages[index], ...message };
+    } else if (message.room && message.room === this.state.room) {
+      this.displayMessage(message);
+    }
+    if (message.room && message.room !== this.state.room) {
+      this.emit('roomActivity', { room: message.room, message });
+    }
+    this.emit('messageDeleted', message);
   }
 
   private async withAuth<T>(source: 'rest' | 'ws', fn: () => Promise<T>): Promise<T> {

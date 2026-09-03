@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ConnectionStatus, MessageRecord, PublicUser, RoomRecord } from '@hermes/core';
-  import { groupConsecutiveBySender } from '@hermes/core';
+  import { groupTranscript } from '@hermes/core';
   import { goto } from '$app/navigation';
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
@@ -8,11 +8,14 @@
   import MessageGroup from '$lib/components/MessageGroup.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
   import {
+    clearDraft,
     colorClass,
     formatUnread,
+    loadDraft,
     RAIL_PEOPLE_KEY,
     RAIL_ROOMS_KEY,
     readCollapsed,
+    saveDraft,
     writeCollapsed,
   } from '$lib/ui';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
@@ -70,7 +73,7 @@
       return a.username.localeCompare(b.username);
     })
   );
-  const messageGroups = $derived(groupConsecutiveBySender(messages));
+  const transcriptRows = $derived(groupTranscript(messages));
 
   function isDm(room: RoomRecord | undefined): boolean {
     if (!room) {
@@ -144,10 +147,27 @@
     }
   }
 
-  function bumpUnread(slug: string): void {
-    if (slug === currentRoom && typeof document !== 'undefined' && !document.hidden) {
-      return;
+  function isCaughtUp(slug: string | null | undefined): boolean {
+    if (!slug || slug !== currentRoom) {
+      return false;
     }
+    if (typeof document !== 'undefined' && document.hidden) {
+      return false;
+    }
+    return stickToBottom;
+  }
+
+  function shouldCountUnread(slug: string, message: MessageRecord): boolean {
+    if (message.sender === username) {
+      return false;
+    }
+    if (message.deleted_at) {
+      return false;
+    }
+    return !isCaughtUp(slug);
+  }
+
+  function bumpUnread(slug: string): void {
     rooms = rooms.map((room) =>
       room.slug === slug ? { ...room, unread_count: (room.unread_count ?? 0) + 1 } : room
     );
@@ -164,7 +184,7 @@
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
       return;
     }
-    if (typeof document !== 'undefined' && !document.hidden && roomSlug === currentRoom) {
+    if (isCaughtUp(roomSlug)) {
       return;
     }
     const room = rooms.find((entry) => entry.slug === roomSlug);
@@ -216,8 +236,12 @@
     if (!scroller || ignoreScroll) {
       return;
     }
+    const wasCaughtUp = stickToBottom;
     stickToBottom = atBottom();
     showJump = !stickToBottom;
+    if (!wasCaughtUp && stickToBottom) {
+      void markFocusedRead();
+    }
   }
 
   function pinToLatest(): void {
@@ -245,10 +269,11 @@
     stickToBottom = true;
     showJump = false;
     pinToLatest();
+    void markFocusedRead();
   }
 
   async function markFocusedRead(): Promise<void> {
-    if (!currentRoom || (typeof document !== 'undefined' && document.hidden)) {
+    if (!currentRoom || !isCaughtUp(currentRoom)) {
       return;
     }
     try {
@@ -259,6 +284,22 @@
     }
   }
 
+  function growComposer(): void {
+    if (!composer) {
+      return;
+    }
+    composer.style.height = 'auto';
+    const max = 8 * 16;
+    composer.style.height = `${Math.min(composer.scrollHeight, max)}px`;
+  }
+
+  function onDraftInput(): void {
+    if (currentRoom) {
+      saveDraft(currentRoom, draft);
+    }
+    growComposer();
+  }
+
   async function selectRoom(slug: string): Promise<void> {
     if (!slug) {
       return;
@@ -266,10 +307,15 @@
     banner = '';
     stickToBottom = true;
     showJump = false;
+    if (currentRoom && currentRoom !== slug) {
+      saveDraft(currentRoom, draft);
+    }
     try {
       if (slug !== currentRoom) {
         await session.enterRoom(slug);
         syncFromSession();
+        draft = loadDraft(slug);
+        queueMicrotask(growComposer);
       }
       clearUnread(slug);
       await session.markRoomRead(slug);
@@ -333,6 +379,31 @@
     }
   }
 
+  async function hideSlug(slug: string): Promise<void> {
+    if (!slug || slug === 'general' || leaving) {
+      return;
+    }
+    leaving = true;
+    try {
+      await session.hideRoom(slug);
+      const remaining = rooms.filter((room) => room.slug !== slug);
+      rooms = remaining;
+      if (currentRoom === slug) {
+        const next = remaining.find((room) => room.slug === 'general') ?? remaining[0];
+        if (next) {
+          await selectRoom(next.slug);
+        } else {
+          currentRoom = null;
+          messages = [];
+        }
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      leaving = false;
+    }
+  }
+
   async function leaveSlug(slug: string): Promise<void> {
     if (!slug || slug === 'general' || leaving) {
       return;
@@ -355,6 +426,44 @@
       flash(error instanceof Error ? error.message : String(error), true);
     } finally {
       leaving = false;
+    }
+  }
+
+  function previewLine(room: RoomRecord): string {
+    const last = room.last_message;
+    if (!last) {
+      return '';
+    }
+    if (last.deleted) {
+      return `${last.sender}: Message deleted`;
+    }
+    if (last.file && !last.content) {
+      return `${last.sender}: file`;
+    }
+    return `${last.sender}: ${last.content}`;
+  }
+
+  async function unsend(message: MessageRecord): Promise<void> {
+    try {
+      await session.unsendMessage(message.id);
+      syncFromSession();
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    }
+  }
+
+  async function resetPasswordFor(user: PublicUser): Promise<void> {
+    try {
+      const issued = await session.issuePasswordReset(user.username);
+      const text = issued.token;
+      try {
+        await navigator.clipboard.writeText(text);
+        flash(`Reset token copied. Valid until ${issued.expires_at}.`);
+      } catch {
+        window.prompt('Reset token (1 hour). Copy it now:', text);
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
     }
   }
 
@@ -390,6 +499,10 @@
         await session.sendMessage(text);
         draft = '';
       }
+      if (currentRoom) {
+        clearDraft(currentRoom);
+      }
+      growComposer();
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
     } finally {
@@ -525,16 +638,79 @@
       }),
       session.on('message', (message) => {
         syncFromSession();
-        if (typeof document !== 'undefined' && document.hidden && message.room) {
-          bumpUnread(message.room);
-        } else if (message.room) {
-          void session.markRoomRead(message.room);
+        if (message.room) {
+          if (shouldCountUnread(message.room, message)) {
+            bumpUnread(message.room);
+          } else if (isCaughtUp(message.room)) {
+            void session.markRoomRead(message.room);
+          }
+        }
+        if (message.room) {
+          rooms = rooms.map((entry) =>
+            entry.slug === message.room
+              ? {
+                  ...entry,
+                  last_message: {
+                    id: message.id,
+                    sender: message.sender,
+                    content: message.content.slice(0, 80),
+                    deleted: false,
+                    file: message.file_id != null && message.file_id !== '',
+                  },
+                }
+              : entry
+          );
         }
         maybeNotify(message.room, message);
       }),
       session.on('roomActivity', ({ room, message }) => {
-        bumpUnread(room);
+        if (message.deleted_at) {
+          rooms = rooms.map((entry) =>
+            entry.slug === room
+              ? {
+                  ...entry,
+                  last_message: {
+                    id: message.id,
+                    sender: message.sender,
+                    content: '',
+                    deleted: true,
+                    file: false,
+                  },
+                }
+              : entry
+          );
+          return;
+        }
+        if (!rooms.some((entry) => entry.slug === room)) {
+          void loadRooms();
+        } else {
+          if (shouldCountUnread(room, message)) {
+            bumpUnread(room);
+          }
+          rooms = rooms.map((entry) =>
+            entry.slug === room
+              ? {
+                  ...entry,
+                  last_message: {
+                    id: message.id,
+                    sender: message.sender,
+                    content: message.content.slice(0, 80),
+                    deleted: false,
+                    file: message.file_id != null && message.file_id !== '',
+                  },
+                }
+              : entry
+          );
+        }
         maybeNotify(room, message);
+      }),
+      session.on('messageDeleted', () => {
+        syncFromSession();
+      }),
+      session.on('userUpdated', (user) => {
+        directory = directory.map((entry) =>
+          entry.id === user.id || entry.username === user.username ? { ...entry, ...user } : entry
+        );
       }),
       session.on('callStarted', ({ room, user }) => {
         if (user === session.getState().username) {
@@ -625,7 +801,12 @@
                 class:active={room.slug === currentRoom}
                 onclick={() => selectRoom(room.slug)}
               >
-                <span class="room-label"><span class="hash">#</span>{roomTitle(room)}</span>
+                <span class="room-copy">
+                  <span class="room-label"><span class="hash">#</span>{roomTitle(room)}</span>
+                  {#if previewLine(room)}
+                    <span class="room-preview">{previewLine(room)}</span>
+                  {/if}
+                </span>
                 {#if formatUnread(room.unread_count)}
                   <span class="unread">{formatUnread(room.unread_count)}</span>
                 {/if}
@@ -650,7 +831,12 @@
                 {#if peer}
                   <Avatar user={peer} size="sm" />
                 {/if}
-                <span class="room-label"><span class="hash">@</span>{roomTitle(room)}</span>
+                <span class="room-copy">
+                  <span class="room-label"><span class="hash">@</span>{roomTitle(room)}</span>
+                  {#if previewLine(room)}
+                    <span class="room-preview">{previewLine(room)}</span>
+                  {/if}
+                </span>
                 {#if formatUnread(room.unread_count)}
                   <span class="unread">{formatUnread(room.unread_count)}</span>
                 {/if}
@@ -660,7 +846,7 @@
                 class="row-x"
                 title="Close DM"
                 disabled={leaving}
-                onclick={() => leaveSlug(room.slug)}
+                onclick={() => hideSlug(room.slug)}
               >
                 ×
               </button>
@@ -760,14 +946,21 @@
         {#if messages.length === 0}
           <p class="empty-hint">No messages yet.</p>
         {:else}
-          {#each messageGroups as group (group.messages[0]?.id)}
-            <MessageGroup
-              messages={group.messages}
-              sender={group.messages[0] ? lookupUser(group.messages[0].sender) : undefined}
-              users={directory}
-              showName={group.showName}
-              {onDownload}
-            />
+          {#each transcriptRows as row (row.key)}
+            {#if row.kind === 'date'}
+              <div class="date-sep">{row.label}</div>
+            {:else}
+              <MessageGroup
+                messages={row.group.messages}
+                sender={row.group.messages[0] ? lookupUser(row.group.messages[0].sender) : undefined}
+                users={directory}
+                showName={row.group.showName}
+                ownName={username}
+                {onDownload}
+                onUnsend={unsend}
+                onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
+              />
+            {/if}
           {/each}
         {/if}
       </div>
@@ -801,6 +994,7 @@
         bind:this={composer}
         bind:value={draft}
         disabled={!currentRoom}
+        oninput={onDraftInput}
         onkeydown={onComposerKey}
         onpaste={onComposerPaste}
       ></textarea>
@@ -845,18 +1039,41 @@
                   <span class="you">you</span>
                 </span>
               {:else}
-                <button
-                  type="button"
-                  class:active={currentRoomRecord() &&
-                    isDm(currentRoomRecord()) &&
-                    roomTitle(currentRoomRecord()) === person.username}
-                  disabled={startingDm != null}
-                  onclick={() => startDm(person)}
-                >
-                  <span class="status-dot" class:open={isOnline(person.username)}></span>
-                  <UserChip user={person} />
-                  <span class="role-label">{person.role ?? 'member'}</span>
-                </button>
+                <div class="person-row">
+                  <button
+                    type="button"
+                    class="person-open"
+                    class:active={currentRoomRecord() &&
+                      isDm(currentRoomRecord()) &&
+                      roomTitle(currentRoomRecord()) === person.username}
+                    disabled={startingDm != null}
+                    onclick={() => startDm(person)}
+                  >
+                    <span class="status-dot" class:open={isOnline(person.username)}></span>
+                    <UserChip user={person} />
+                    <span class="role-label">{person.role ?? 'member'}</span>
+                  </button>
+                  {#if me?.role === 'admin'}
+                    <button
+                      type="button"
+                      class="reset-pw-icon"
+                      title="Reset password"
+                      aria-label="Reset password for {person.username}"
+                      onclick={() => resetPasswordFor(person)}
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                        <circle cx="6" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.5" />
+                        <path
+                          d="M8.2 8h5.3M11.2 8v2.2M13.5 8v1.4"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </button>
+                  {/if}
+                </div>
               {/if}
             </li>
           {/each}

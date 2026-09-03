@@ -10,6 +10,12 @@ export interface UserPayload {
 export interface AuthResponse {
   username: string;
   token: string;
+  expires_at?: string;
+}
+
+export interface PasswordResetIssue {
+  token: string;
+  expires_at: string;
 }
 
 export interface RegisterResponse {
@@ -23,6 +29,7 @@ export interface MessageRecord {
   content: string;
   created_at: string;
   file_id?: number | string | null;
+  deleted_at?: string | null;
 }
 
 export interface FileRecord {
@@ -53,6 +60,14 @@ export interface PublicUser {
   color?: string | null;
 }
 
+export interface LastMessagePreview {
+  id: number;
+  sender: string;
+  content: string;
+  deleted: boolean;
+  file: boolean;
+}
+
 export interface RoomRecord {
   id: number;
   slug: string;
@@ -61,6 +76,7 @@ export interface RoomRecord {
   created_at?: string;
   members?: string[];
   unread_count?: number;
+  last_message?: LastMessagePreview | null;
 }
 
 export interface ClientState {

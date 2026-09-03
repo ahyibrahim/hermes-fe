@@ -6,6 +6,7 @@ import {
   HealthResponse,
   IceConfig,
   MessageRecord,
+  PasswordResetIssue,
   PublicUser,
   RegisterResponse,
   RoomRecord,
@@ -108,6 +109,15 @@ export class HermesApi {
     await this.readJson<{ ok?: boolean }>(response, 'Leave room', true);
   }
 
+  async hideRoom(room: string, token: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/rooms/hide`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ room }),
+    });
+    await this.readJson<{ ok?: boolean }>(response, 'Hide room', true);
+  }
+
   async markRoomRead(room: string, token: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/rooms/read`, {
       method: 'POST',
@@ -192,6 +202,35 @@ export class HermesApi {
       headers: this.authHeaders(token),
     });
     return this.readJson<MessageRecord[]>(response, 'List messages', true);
+  }
+
+  async deleteMessage(id: number, token: string): Promise<MessageRecord> {
+    const response = await fetch(`${this.baseUrl}/messages/${encodeURIComponent(String(id))}`, {
+      method: 'DELETE',
+      headers: this.authHeaders(token),
+    });
+    return this.readJson<MessageRecord>(response, 'Unsend message', true);
+  }
+
+  async issuePasswordReset(username: string, token: string): Promise<PasswordResetIssue> {
+    const response = await fetch(
+      `${this.baseUrl}/users/${encodeURIComponent(username)}/password-reset`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+        body: '{}',
+      }
+    );
+    return this.readJson<PasswordResetIssue>(response, 'Issue password reset', true);
+  }
+
+  async redeemPasswordReset(username: string, token: string, password: string): Promise<AuthResponse> {
+    const response = await fetch(`${this.baseUrl}/auth/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, token, password }),
+    });
+    return this.readJson<AuthResponse>(response, 'Redeem password reset', false);
   }
 
   async createMessage(room: string, content: string, token: string): Promise<MessageRecord> {

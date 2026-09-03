@@ -7,9 +7,11 @@
   let {
     user,
     children,
+    onResetPassword,
   }: {
     user: PublicUser;
     children: Snippet;
+    onResetPassword?: (user: PublicUser) => void;
   } = $props();
 
   let open = $state(false);
@@ -36,6 +38,19 @@
       <div class="hover-meta">
         <div class="hover-name {colorClass(user.color)}">{user.username}</div>
         <div class="hover-role">{user.role ?? 'member'}</div>
+        {#if onResetPassword}
+          <button
+            type="button"
+            class="reset-pw"
+            onclick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onResetPassword(user);
+            }}
+          >
+            Reset password
+          </button>
+        {/if}
       </div>
     </div>
   {/if}

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatTranscriptTimestamp, groupConsecutiveBySender, MESSAGE_BUBBLE_GAP_MS } from './message-groups.js';
+import {
+  formatTranscriptTimestamp,
+  groupConsecutiveBySender,
+  groupTranscript,
+  MESSAGE_BUBBLE_GAP_MS,
+} from './message-groups.js';
 
 function at(minute: number, second = 0): string {
   return `2026-09-02T12:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}.000Z`;
@@ -102,4 +107,13 @@ test('formatTranscriptTimestamp includes the date on a different local day', () 
     ),
     'Sep 1, 5:30 PM'
   );
+});
+
+test('groupTranscript inserts a date separator at local midnight', () => {
+  const first = { id: 1, sender: 'ada', created_at: new Date(2026, 8, 1, 23, 30).toISOString() };
+  const second = { id: 2, sender: 'ada', created_at: new Date(2026, 8, 2, 0, 5).toISOString() };
+  const rows = groupTranscript([first, second]);
+  assert.equal(rows.filter((row) => row.kind === 'date').length, 2);
+  assert.equal(rows[0]?.kind, 'date');
+  assert.equal(rows[2]?.kind, 'date');
 });

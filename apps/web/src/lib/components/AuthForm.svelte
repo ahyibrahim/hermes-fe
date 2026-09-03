@@ -1,20 +1,25 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+  import AuthBrand from '$lib/components/AuthBrand.svelte';
+
   let {
     title,
-    lede,
+    lede = '',
     submitLabel,
     altHref,
     altLabel,
     passwordAutocomplete = 'current-password',
     onSubmit,
+    children,
   }: {
     title: string;
-    lede: string;
+    lede?: string;
     submitLabel: string;
     altHref: string;
     altLabel: string;
     passwordAutocomplete?: 'current-password' | 'new-password';
     onSubmit: (username: string, password: string) => Promise<void>;
+    children?: Snippet;
   } = $props();
 
   let username = $state('');
@@ -43,9 +48,12 @@
 </script>
 
 <div class="auth-page">
+  <AuthBrand />
   <form class="auth-card" onsubmit={handleSubmit}>
     <h1>{title}</h1>
-    <p class="lede">{lede}</p>
+    {#if lede}
+      <p class="lede">{lede}</p>
+    {/if}
     {#if error}
       <p class="error">{error}</p>
     {/if}
@@ -71,4 +79,5 @@
     <button type="submit" disabled={busy}>{busy ? 'Please wait…' : submitLabel}</button>
     <p class="alt"><a href={altHref}>{altLabel}</a></p>
   </form>
+  {@render children?.()}
 </div>

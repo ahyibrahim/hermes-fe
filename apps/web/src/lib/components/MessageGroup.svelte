@@ -9,13 +9,19 @@
     sender,
     users,
     showName,
+    ownName,
     onDownload,
+    onUnsend,
+    onResetPassword,
   }: {
     messages: MessageRecord[];
     sender: PublicUser | undefined;
     users: PublicUser[];
     showName: boolean;
+    ownName: string | null;
     onDownload: (message: MessageRecord) => void;
+    onUnsend: (message: MessageRecord) => void;
+    onResetPassword?: (user: PublicUser) => void;
   } = $props();
 
   const first = $derived(messages[0]);
@@ -29,13 +35,22 @@
   >
     <div class="msg-cluster-avatar">
       {#if showName && sender}
-        <UserChip user={sender} showName={false} size="md" />
+        <UserChip
+          user={sender}
+          showName={false}
+          size="md"
+          onResetPassword={ownName === sender.username ? undefined : onResetPassword}
+        />
       {/if}
     </div>
     <header class="msg-group-meta">
       {#if showName}
         {#if sender}
-          <UserChip user={sender} showAvatar={false} />
+          <UserChip
+            user={sender}
+            showAvatar={false}
+            onResetPassword={ownName === sender.username ? undefined : onResetPassword}
+          />
         {:else}
           <span class="sender">{first.sender}</span>
         {/if}
@@ -44,7 +59,7 @@
     </header>
     <div class="msg-group">
       {#each messages as message (message.id)}
-        <MessageItem {message} {users} {onDownload} />
+        <MessageItem {message} {users} own={ownName === message.sender} {onDownload} {onUnsend} />
       {/each}
     </div>
   </section>

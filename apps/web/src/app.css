@@ -87,9 +87,38 @@ button {
 
 .auth-page {
   min-height: 100%;
-  display: grid;
-  place-items: center;
-  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem 2.5rem;
+}
+
+.auth-brand {
+  padding: 0 0 1.75rem;
+}
+
+.auth-wordmark {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(2.35rem, 8vw, 3.15rem);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.auth-wordmark .auth-mark {
+  display: block;
+  width: 1.08em;
+  height: 1em;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.auth-wordmark-rest {
+  padding-left: 0.02em;
 }
 
 .auth-card {
@@ -101,15 +130,31 @@ button {
   padding: 1.5rem;
 }
 
+.auth-extra {
+  text-align: center;
+  margin: 0.75rem 0 0;
+}
+
+.linkish {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
 .auth-card h1 {
-  margin: 0 0 0.25rem;
+  margin: 0 0 1rem;
   font-size: 1.35rem;
   font-weight: 650;
+  text-align: center;
 }
 
 .auth-card .lede {
   margin: 0 0 1.25rem;
   color: var(--text-muted);
+  text-align: center;
   font-size: 0.95rem;
 }
 
@@ -319,7 +364,7 @@ button {
   padding: 0;
 }
 
-.people-list button,
+.people-list .person-open,
 .people-list .self {
   display: flex;
   align-items: center;
@@ -333,11 +378,11 @@ button {
   color: var(--text);
 }
 
-.people-list button:hover {
+.people-list .person-open:hover {
   background: var(--bg-hover);
 }
 
-.people-list button.active {
+.people-list .person-open.active {
   background: var(--bg-active);
   font-weight: 600;
 }
@@ -690,6 +735,7 @@ button {
 .composer textarea {
   width: 100%;
   resize: none;
+  overflow-y: auto;
   min-height: 2.6rem;
   max-height: 8rem;
   padding: 0.5rem 0.65rem;
@@ -725,28 +771,28 @@ button {
   color: var(--text-muted);
 }
 
-.user-color-ember { --user-color: #c45c26; }
-.user-color-moss { --user-color: #2f7a45; }
-.user-color-lake { --user-color: #2a6f97; }
-.user-color-plum { --user-color: #7a3e7a; }
-.user-color-rust { --user-color: #a33b32; }
-.user-color-teal { --user-color: #2a7a72; }
-.user-color-gold { --user-color: #8a6a2d; }
-.user-color-indigo { --user-color: #3d4a8a; }
-.user-color-rose { --user-color: #a33d6a; }
-.user-color-slate { --user-color: #5d6570; }
+.user-color-rust { --user-color: #b42318; }
+.user-color-ember { --user-color: #c2410c; }
+.user-color-gold { --user-color: #a16207; }
+.user-color-moss { --user-color: #15803d; }
+.user-color-teal { --user-color: #0f766e; }
+.user-color-lake { --user-color: #1d4ed8; }
+.user-color-indigo { --user-color: #4f46e5; }
+.user-color-plum { --user-color: #7e22ce; }
+.user-color-rose { --user-color: #c026d3; }
+.user-color-slate { --user-color: #475569; }
 
 @media (prefers-color-scheme: dark) {
-  .user-color-ember { --user-color: #e08a5c; }
-  .user-color-moss { --user-color: #7dcea0; }
-  .user-color-lake { --user-color: #7eb8d4; }
-  .user-color-plum { --user-color: #c89bc8; }
-  .user-color-rust { --user-color: #e09b96; }
-  .user-color-teal { --user-color: #7dcec4; }
-  .user-color-gold { --user-color: #e0c07a; }
-  .user-color-indigo { --user-color: #9aa3d4; }
-  .user-color-rose { --user-color: #e09bb8; }
-  .user-color-slate { --user-color: #b0b6c0; }
+  .user-color-rust { --user-color: #f87171; }
+  .user-color-ember { --user-color: #fb923c; }
+  .user-color-gold { --user-color: #fbbf24; }
+  .user-color-moss { --user-color: #4ade80; }
+  .user-color-teal { --user-color: #2dd4bf; }
+  .user-color-lake { --user-color: #60a5fa; }
+  .user-color-indigo { --user-color: #818cf8; }
+  .user-color-plum { --user-color: #c084fc; }
+  .user-color-rose { --user-color: #f472b6; }
+  .user-color-slate { --user-color: #94a3b8; }
 }
 
 .shell.rooms-collapsed {
@@ -795,6 +841,21 @@ button {
 
 .room-label {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.room-preview {
+  font-size: 0.75rem;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1051,6 +1112,11 @@ button {
   outline-offset: 1px;
 }
 
+.swatch.taken,
+.swatch:disabled {
+  opacity: 0.4;
+}
+
 .crop-modal {
   position: fixed;
   inset: 0;
@@ -1118,4 +1184,97 @@ button {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
+}
+
+.date-sep {
+  margin: 0.85rem 0 0.4rem;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
+.tombstone {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.msg-item {
+  position: relative;
+}
+
+.msg-item .unsend {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 0.3rem;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+}
+
+.msg-item.own:hover .unsend {
+  display: inline-block;
+}
+
+.inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.25rem;
+  background: var(--bg-rail);
+}
+
+.fence-wrap {
+  position: relative;
+}
+
+.fence-copy {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-radius: 0.3rem;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+}
+
+.reset-pw {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 0.7rem;
+  padding: 0;
+  cursor: pointer;
+}
+
+.person-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.person-row > .person-open {
+  flex: 1;
+  min-width: 0;
+}
+
+.reset-pw-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  padding: 0.15rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.reset-pw-icon:hover {
+  color: var(--accent);
 }
