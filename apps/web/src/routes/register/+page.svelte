@@ -32,7 +32,6 @@
 {:else}
   <AuthForm
     title="Create an account"
-    lede="Hermes"
     submitLabel="Register"
     altHref="/login"
     altLabel="Already have an account? Sign in"

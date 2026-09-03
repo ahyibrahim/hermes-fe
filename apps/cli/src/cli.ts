@@ -259,8 +259,16 @@ async function handleSlashCommand(command: string, args: string[], rest: string)
         say('Usage: /leave [room]');
         break;
       }
-      await session.leaveRoom(slug);
-      say(`Left ${slug}.`);
+      const rooms = await session.listRooms();
+      const room = rooms.find((entry) => entry.slug === slug);
+      const isDm = room?.type === 'dm' || slug.startsWith('dm:');
+      if (isDm) {
+        await session.hideRoom(slug);
+        say(`Hid ${slug}.`);
+      } else {
+        await session.leaveRoom(slug);
+        say(`Left ${slug}.`);
+      }
       if (session.getState().room === slug) {
         await session.enterRoom('general');
         refreshPrompt();

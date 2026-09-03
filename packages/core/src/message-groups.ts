@@ -34,6 +34,56 @@ export function formatTranscriptTimestamp(
   });
 }
 
+export function localDayKey(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function formatDateSeparator(value: string, locale?: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString(locale, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+export type TranscriptRow<T> =
+  | { kind: 'date'; key: string; label: string }
+  | { kind: 'group'; key: string; group: MessageBubbleGroup<T> };
+
+export function groupTranscript<T extends { id?: number; sender: string; created_at: string }>(
+  messages: readonly T[],
+  gapMs = MESSAGE_BUBBLE_GAP_MS,
+  locale?: string
+): TranscriptRow<T>[] {
+  const rows: TranscriptRow<T>[] = [];
+  let lastDay = '';
+  for (const group of groupConsecutiveBySender(messages, gapMs)) {
+    const first = group.messages[0];
+    if (!first) {
+      continue;
+    }
+    const day = localDayKey(first.created_at);
+    if (day !== lastDay) {
+      lastDay = day;
+      rows.push({ kind: 'date', key: `date:${day}`, label: formatDateSeparator(first.created_at, locale) });
+    }
+    rows.push({ kind: 'group', key: `group:${first.id ?? first.created_at}:${first.sender}`, group });
+  }
+  return rows;
+}
+
 export function groupConsecutiveBySender<T extends { sender: string; created_at: string }>(
   messages: readonly T[],
   gapMs = MESSAGE_BUBBLE_GAP_MS

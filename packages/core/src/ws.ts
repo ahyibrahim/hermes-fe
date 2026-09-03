@@ -1,11 +1,11 @@
 import { SOCKET_OPEN, SocketCloseInfo, SocketHandle, TransportAdapter } from './adapters.js';
 import { AuthError } from './errors.js';
-import { IceCandidatePayload, MessageRecord, SessionDescriptionPayload } from './types.js';
+import { IceCandidatePayload, MessageRecord, PublicUser, SessionDescriptionPayload } from './types.js';
 
 export interface WsIncomingMessage {
   type: string;
   room?: string;
-  user?: string;
+  user?: string | PublicUser;
   users?: string[];
   message?: MessageRecord;
   content?: string;

@@ -123,6 +123,8 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   const clients = new Set<Client>();
   const callMembers = new Map<string, Set<string>>();
   const reads = new Map<string, number>();
+  const hidden = new Set<string>();
+  const resetTokens = new Map<string, string>();
   let nextMessageId = 1;
   let nextFileId = 1;
   let nextToken = 1;
@@ -168,7 +170,39 @@ export async function startFakeBackend(): Promise<FakeBackend> {
 
   const unreadCount = (username: string, room: string): number => {
     const last = reads.get(readKey(username, room)) ?? 0;
-    return messages.filter((message) => message.room === room && message.id > last).length;
+    return messages.filter(
+      (message) => message.room === room && message.id > last && !message.deleted_at
+    ).length;
+  };
+
+  const hideKey = (username: string, room: string): string => `${username}\0${room}`;
+
+  const lastMessagePreview = (slug: string) => {
+    const row = [...messages].reverse().find((message) => message.room === slug);
+    if (!row) {
+      return null;
+    }
+    if (row.deleted_at) {
+      return { id: row.id, sender: row.sender, content: '', deleted: true, file: false };
+    }
+    const raw = row.content ?? '';
+    return {
+      id: row.id,
+      sender: row.sender,
+      content: raw.length > 80 ? raw.slice(0, 80) : raw,
+      deleted: false,
+      file: row.file_id != null,
+    };
+  };
+
+  const revealDm = (slug: string): void => {
+    const room = rooms.get(slug);
+    if (!room || room.type !== 'dm') {
+      return;
+    }
+    for (const member of room.members) {
+      hidden.delete(hideKey(member, slug));
+    }
   };
 
   const markRead = (username: string, room: string): void => {
@@ -321,6 +355,36 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         return;
       }
 
+      if (method === 'POST' && url.pathname === '/auth/reset') {
+        const body = JSON.parse((await readBody(req)).toString()) as {
+          username?: string;
+          token?: string;
+          password?: string;
+        };
+        const username = body.username?.trim().toLowerCase() ?? '';
+        const stored = resetTokens.get(username);
+        if (!stored || stored !== body.token || !body.password) {
+          sendJson(res, 401, { error: 'invalid reset token' });
+          return;
+        }
+        const user = users.get(username);
+        if (!user) {
+          sendJson(res, 401, { error: 'invalid reset token' });
+          return;
+        }
+        user.password = body.password;
+        resetTokens.delete(username);
+        for (const [tok, name] of [...tokens]) {
+          if (name === username) {
+            tokens.delete(tok);
+          }
+        }
+        const token = `tok-${nextToken++}`;
+        tokens.set(token, username);
+        sendJson(res, 200, { username, token, expires_at: new Date(Date.now() + 30 * 86400000).toISOString() });
+        return;
+      }
+
       if (method === 'POST' && url.pathname === '/auth/logout') {
         const username = requireUser(req, res);
         if (!username) {
@@ -385,7 +449,11 @@ export async function startFakeBackend(): Promise<FakeBackend> {
             return;
           }
           user.color = body.color;
-          sendJson(res, 200, profileOf(username));
+          const profile = profileOf(username);
+          for (const name of new Set([...clients].map((client) => client.user))) {
+            sendToUser(name, { type: 'user_updated', user: profile });
+          }
+          sendJson(res, 200, profile);
           return;
         }
         if (!user || user.password !== body.current_password) {
@@ -459,6 +527,27 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         return;
       }
 
+      const resetMatch = /^\/users\/([^/]+)\/password-reset$/.exec(url.pathname);
+      if (method === 'POST' && resetMatch) {
+        const actor = requireUser(req, res);
+        if (!actor) {
+          return;
+        }
+        if (users.get(actor)?.role !== 'admin') {
+          sendJson(res, 403, { error: 'admin required' });
+          return;
+        }
+        const target = decodeURIComponent(resetMatch[1]).trim().toLowerCase();
+        if (!users.has(target)) {
+          sendJson(res, 404, { error: 'user not found' });
+          return;
+        }
+        const token = `reset-${nextToken++}`;
+        resetTokens.set(target, token);
+        sendJson(res, 201, { token, expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString() });
+        return;
+      }
+
       if (method === 'GET' && url.pathname === '/users/online') {
         const username = requireUser(req, res);
         if (!username) {
@@ -490,7 +579,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           res,
           200,
           [...rooms.values()]
-            .filter((room) => room.members.includes(username))
+            .filter((room) => room.members.includes(username) && !hidden.has(hideKey(username, room.slug)))
             .map((room) => ({
               id: room.id,
               slug: room.slug,
@@ -498,6 +587,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
               type: room.type ?? 'group',
               members: [...new Set([...room.members, ...connectedUsers(room.slug)])],
               unread_count: unreadCount(username, room.slug),
+              last_message: lastMessagePreview(room.slug),
             }))
         );
         return;
@@ -577,6 +667,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           if (!existing.members.includes(other)) {
             existing.members.push(other);
           }
+          hidden.delete(hideKey(username, existing.slug));
           sendJson(res, 200, {
             id: existing.id,
             slug: existing.slug,
@@ -620,12 +711,45 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         const room = rooms.get(slug);
+        if (room?.type === 'dm' || slug.startsWith('dm:')) {
+          sendJson(res, 400, { error: 'cannot leave a DM' });
+          return;
+        }
         if (!room?.members.includes(username)) {
           sendJson(res, 403, { error: 'not a member of that room' });
           return;
         }
         room.members = room.members.filter((member) => member !== username);
         sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (method === 'POST' && url.pathname === '/rooms/hide') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as { room?: string };
+        const slug = body.room?.trim() ?? '';
+        if (!slug) {
+          sendJson(res, 400, { error: 'room is required' });
+          return;
+        }
+        if (slug === 'general') {
+          sendJson(res, 400, { error: 'cannot hide general' });
+          return;
+        }
+        const room = rooms.get(slug);
+        if (!room || (room.type !== 'dm' && !slug.startsWith('dm:'))) {
+          sendJson(res, 400, { error: 'can only hide a DM' });
+          return;
+        }
+        if (!room.members.includes(username)) {
+          sendJson(res, 403, { error: 'not a member of this room' });
+          return;
+        }
+        hidden.add(hideKey(username, slug));
+        sendJson(res, 200, { ok: true, room: slug });
         return;
       }
 
@@ -689,8 +813,32 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           created_at: new Date().toISOString(),
         };
         messages.push(message);
+        revealDm(room.slug);
         broadcastToMembers(room.slug, { type: 'message', message });
         sendJson(res, 200, message);
+        return;
+      }
+
+      if (method === 'DELETE' && url.pathname.startsWith('/messages/')) {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const id = Number(url.pathname.slice('/messages/'.length));
+        const existing = messages.find((row) => row.id === id);
+        if (!existing) {
+          sendJson(res, 404, { error: 'message not found' });
+          return;
+        }
+        if (existing.sender !== username) {
+          sendJson(res, 403, { error: 'only the sender can unsend' });
+          return;
+        }
+        existing.content = '';
+        existing.file_id = null;
+        existing.deleted_at = existing.deleted_at ?? new Date().toISOString();
+        broadcastToMembers(existing.room, { type: 'message_deleted', message: existing });
+        sendJson(res, 200, existing);
         return;
       }
 
@@ -722,6 +870,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           file_id: fileId,
         };
         messages.push(message);
+        revealDm(roomSlug);
         broadcastToMembers(roomSlug, { type: 'message', message });
         sendJson(res, 200, {
           file: { id: fileId, room: roomSlug, name: parsed.file.filename, filename: parsed.file.filename },

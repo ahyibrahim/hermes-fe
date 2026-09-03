@@ -22,6 +22,10 @@
   let colorBusy = $state(false);
   let cropFile = $state<File | null>(null);
   let fileInput: HTMLInputElement | undefined = $state();
+  let directory = $state<PublicUser[]>([]);
+  const takenColors = $derived(
+    new Set(directory.filter((user) => user.id !== profile?.id && user.color).map((user) => user.color as string))
+  );
 
   const session = getSession();
 
@@ -34,6 +38,11 @@
       return false;
     }
     profile = me;
+    try {
+      directory = await session.listUsers();
+    } catch {
+      directory = profile ? [profile] : [];
+    }
     return true;
   }
 
@@ -153,8 +162,9 @@
             type="button"
             class="swatch user-color-{color}"
             class:selected={profile.color === color}
-            disabled={colorBusy}
-            title={color}
+            class:taken={takenColors.has(color) && profile.color !== color}
+            disabled={colorBusy || (takenColors.has(color) && profile.color !== color)}
+            title={takenColors.has(color) && profile.color !== color ? `${color} is taken` : color}
             onclick={() => onPickColor(color)}
           >
             {color}

@@ -65,6 +65,38 @@ export function formatMessageTime(value: string): string {
 export const RAIL_ROOMS_KEY = 'hermes.rail.roomsCollapsed';
 export const RAIL_PEOPLE_KEY = 'hermes.rail.peopleCollapsed';
 
+function draftKey(slug: string): string {
+  return `hermes.draft.${slug}`;
+}
+
+export function loadDraft(slug: string): string {
+  try {
+    return localStorage.getItem(draftKey(slug)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveDraft(slug: string, text: string): void {
+  try {
+    if (text) {
+      localStorage.setItem(draftKey(slug), text);
+    } else {
+      localStorage.removeItem(draftKey(slug));
+    }
+  } catch {
+    // Private-mode quota should not break the composer.
+  }
+}
+
+export function clearDraft(slug: string): void {
+  try {
+    localStorage.removeItem(draftKey(slug));
+  } catch {
+    // ignore
+  }
+}
+
 export function readCollapsed(key: string): boolean {
   try {
     return localStorage.getItem(key) === '1';
