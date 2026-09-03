@@ -2,7 +2,7 @@
 
 Clients for **Hermes**, a private messenger for a small group of friends. It runs on the local network and over Tailscale, and talks to the [hermes-be](https://github.com/ahyibrahim/hermes-be) backend (one Node process, Fastify, SQLite).
 
-This repository is an npm workspaces monorepo. v0.10.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with rooms, DMs, hide/unsend, password reset, and the Hermes mark).
+This repository is an npm workspaces monorepo. v0.11.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with icon chrome, an in-call drawer, Sign out on Profile, and system `hermes`).
 
 ## Requirements
 
@@ -183,4 +183,4 @@ npm run dev:web
 
 ## Roadmap
 
-v0.10.0 is polish and recovery (hide DMs, unsend, admin password reset, last-message previews, Hermes mark). v0.9.0 was the daily-driver web UX. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
+v0.11.0 is call chrome and system hermes (icon buttons, in-call drawer, Sign out on Profile). v0.10.0 was polish and recovery. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
