@@ -1,6 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { getSession } from '$lib/client';
+  import IconButton from '$lib/components/IconButton.svelte';
+  import IconGlyph from '$lib/components/IconGlyph.svelte';
 
   let {
     fileId,
@@ -64,4 +66,11 @@
 {#if previewUrl}
   <img class="img-preview" src={previewUrl} alt={name} />
 {/if}
-<button type="button" class="file-action" onclick={onDownload}>Download {name}</button>
+<div class="file-row">
+  <IconButton label="Download {name}" onclick={onDownload}>
+    <IconGlyph name="download" />
+  </IconButton>
+  {#if !previewUrl}
+    <span class="file-name">{name}</span>
+  {/if}
+</div>

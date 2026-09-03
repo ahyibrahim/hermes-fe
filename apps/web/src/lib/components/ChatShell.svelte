@@ -5,6 +5,8 @@
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
   import CallBar from '$lib/components/CallBar.svelte';
+  import IconButton from '$lib/components/IconButton.svelte';
+  import IconGlyph from '$lib/components/IconGlyph.svelte';
   import MessageGroup from '$lib/components/MessageGroup.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
   import {
@@ -15,8 +17,10 @@
     RAIL_PEOPLE_KEY,
     RAIL_ROOMS_KEY,
     readCollapsed,
+    readNotifyMuted,
     saveDraft,
     writeCollapsed,
+    writeNotifyMuted,
   } from '$lib/ui';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
   import { onMount, tick } from 'svelte';
@@ -47,6 +51,7 @@
   let roomsCollapsed = $state(false);
   let peopleCollapsed = $state(false);
   let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
+  let notifyMuted = $state(false);
   let callToast = $state<{ room: string; user: string } | null>(null);
   let voice = $state<VoiceState>({
     room: null,
@@ -73,6 +78,7 @@
       return a.username.localeCompare(b.username);
     })
   );
+  const notifyOn = $derived(notifyPerm === 'granted' && !notifyMuted);
   const transcriptRows = $derived(groupTranscript(messages));
 
   function isDm(room: RoomRecord | undefined): boolean {
@@ -184,6 +190,9 @@
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
       return;
     }
+    if (notifyMuted) {
+      return;
+    }
     if (isCaughtUp(roomSlug)) {
       return;
     }
@@ -202,6 +211,28 @@
       return;
     }
     notifyPerm = await Notification.requestPermission();
+  }
+
+  async function onNotifyClick(): Promise<void> {
+    if (notifyPerm === 'unsupported' || notifyPerm === 'denied') {
+      return;
+    }
+    if (notifyPerm === 'default') {
+      await askNotify();
+      return;
+    }
+    notifyMuted = !notifyMuted;
+    writeNotifyMuted(notifyMuted);
+  }
+
+  function notifyLabel(): string {
+    if (notifyPerm === 'denied') {
+      return 'Notifications blocked in the browser';
+    }
+    if (notifyPerm === 'default') {
+      return 'Enable notifications';
+    }
+    return notifyOn ? 'Mute notifications' : 'Unmute notifications';
   }
 
   async function joinCall(room = currentRoom): Promise<void> {
@@ -617,6 +648,7 @@
     peopleCollapsed = readCollapsed(RAIL_PEOPLE_KEY);
     notifyPerm =
       typeof Notification === 'undefined' ? 'unsupported' : (Notification.permission as 'default' | 'granted' | 'denied');
+    notifyMuted = readNotifyMuted();
 
     mesh = new VoiceMesh(session);
     const offVoice = mesh.subscribe((next) => {
@@ -892,17 +924,25 @@
         </button>
       {/if}
       {#if currentRoom && !voice.room}
-        <button
-          type="button"
-          class="join-call"
+        <IconButton
+          label="Join call"
           disabled={voice.joining || status !== 'open'}
+          busy={voice.joining}
           onclick={() => joinCall()}
         >
-          {voice.joining ? 'Joining…' : 'Join call'}
-        </button>
+          <IconGlyph name="call" />
+        </IconButton>
       {/if}
-      {#if notifyPerm === 'default'}
-        <button type="button" class="notify-btn" onclick={() => askNotify()}>Enable notifications</button>
+      {#if notifyPerm !== 'unsupported'}
+        <IconButton
+          label={notifyLabel()}
+          title={notifyLabel()}
+          pressed={notifyOn}
+          disabled={notifyPerm === 'denied'}
+          onclick={() => onNotifyClick()}
+        >
+          <IconGlyph name={notifyOn ? 'bell' : 'bell-off'} />
+        </IconButton>
       {/if}
       <span class="status {status}">
         <span class="status-dot"></span>
@@ -967,7 +1007,11 @@
     </div>
 
     {#if showJump}
-      <button type="button" class="jump-latest" onclick={jumpToLatest}>Jump to latest</button>
+      <div class="jump-latest">
+        <IconButton label="Jump to latest" onclick={jumpToLatest}>
+          <IconGlyph name="jump" />
+        </IconButton>
+      </div>
     {/if}
 
     <form
@@ -980,14 +1024,13 @@
       ondrop={onComposerDrop}
     >
       <input type="file" hidden bind:this={fileInput} onchange={onFilePicked} />
-      <button
-        type="button"
-        class="icon-btn"
+      <IconButton
+        label="Attach file"
         disabled={sending || !currentRoom}
         onclick={() => fileInput?.click()}
       >
-        Attach
-      </button>
+        <IconGlyph name="attach" />
+      </IconButton>
       <textarea
         rows="1"
         placeholder={composerHint()}
@@ -998,9 +1041,14 @@
         onkeydown={onComposerKey}
         onpaste={onComposerPaste}
       ></textarea>
-      <button class="send" type="submit" disabled={sending || !currentRoom || (!draft.trim() && !pendingFile)}>
-        Send
-      </button>
+      <IconButton
+        type="submit"
+        label="Send"
+        tone="accent"
+        disabled={sending || !currentRoom || (!draft.trim() && !pendingFile)}
+      >
+        <IconGlyph name="send" />
+      </IconButton>
       {#if pendingFile}
         <span class="attach-chip">
           {pendingFile.name}
@@ -1054,11 +1102,9 @@
                     <span class="role-label">{person.role ?? 'member'}</span>
                   </button>
                   {#if me?.role === 'admin'}
-                    <button
-                      type="button"
-                      class="reset-pw-icon"
+                    <IconButton
+                      label="Reset password for {person.username}"
                       title="Reset password"
-                      aria-label="Reset password for {person.username}"
                       onclick={() => resetPasswordFor(person)}
                     >
                       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -1071,7 +1117,7 @@
                           stroke-linecap="round"
                         />
                       </svg>
-                    </button>
+                    </IconButton>
                   {/if}
                 </div>
               {/if}
