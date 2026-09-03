@@ -5,6 +5,7 @@
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
   import CallBar from '$lib/components/CallBar.svelte';
+  import IconButton from '$lib/components/IconButton.svelte';
   import MessageGroup from '$lib/components/MessageGroup.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
   import {
@@ -1054,11 +1055,9 @@
                     <span class="role-label">{person.role ?? 'member'}</span>
                   </button>
                   {#if me?.role === 'admin'}
-                    <button
-                      type="button"
-                      class="reset-pw-icon"
+                    <IconButton
+                      label="Reset password for {person.username}"
                       title="Reset password"
-                      aria-label="Reset password for {person.username}"
                       onclick={() => resetPasswordFor(person)}
                     >
                       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -1071,7 +1070,7 @@
                           stroke-linecap="round"
                         />
                       </svg>
-                    </button>
+                    </IconButton>
                   {/if}
                 </div>
               {/if}

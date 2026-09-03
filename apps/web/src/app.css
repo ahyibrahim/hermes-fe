@@ -744,10 +744,56 @@ button {
   background: var(--bg-input);
 }
 
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.icon-btn svg {
+  display: block;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.icon-btn.tone-accent {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.icon-btn.tone-accent:hover:not(:disabled) {
+  color: var(--accent-text);
+  filter: brightness(1.08);
+}
+
+.icon-btn.tone-danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
 .composer .icon-btn,
 .composer .send {
+  width: auto;
+  height: auto;
   border: 1px solid var(--border);
   background: var(--bg-input);
+  color: inherit;
   border-radius: 0.4rem;
   padding: 0.45rem 0.7rem;
 }
@@ -1262,19 +1308,3 @@ button {
   min-width: 0;
 }
 
-.reset-pw-icon {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  padding: 0.15rem 0.35rem;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  line-height: 1;
-}
-
-.reset-pw-icon:hover {
-  color: var(--accent);
-}
