@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MessageRecord, PublicUser } from '@hermes/core';
+  import IconButton from '$lib/components/IconButton.svelte';
   import ImagePreview from '$lib/components/ImagePreview.svelte';
   import MessageBody from '$lib/components/MessageBody.svelte';
 
@@ -38,7 +39,27 @@
       />
     {/if}
     {#if own}
-      <button type="button" class="unsend" title="Unsend" onclick={() => onUnsend(message)}>Unsend</button>
+      <span class="unsend">
+        <IconButton label="Unsend" title="Unsend" tone="danger" onclick={() => onUnsend(message)}>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path
+              d="M3.5 4.5h9M6.2 4.5V3.2h3.6v1.3M4.6 4.5l.6 8.2h5.6l.6-8.2"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M6.8 6.6v4.4M9.2 6.6v4.4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
+          </svg>
+        </IconButton>
+      </span>
     {/if}
   {/if}
 </div>
