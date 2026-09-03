@@ -898,7 +898,15 @@
           disabled={creatingRoom}
           maxlength="80"
         />
-        <button type="submit" disabled={creatingRoom || !newRoomName.trim()}>Create</button>
+        <IconButton
+          type="submit"
+          label="Create room"
+          tone="accent"
+          disabled={creatingRoom || !newRoomName.trim()}
+          busy={creatingRoom}
+        >
+          <IconGlyph name="plus" />
+        </IconButton>
       </form>
     {/if}
   </aside>

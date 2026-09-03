@@ -13,7 +13,8 @@
       | 'bell-off'
       | 'mic'
       | 'mic-off'
-      | 'hangup';
+      | 'hangup'
+      | 'plus';
     size?: number;
   } = $props();
 </script>
@@ -108,6 +109,14 @@
       stroke="currentColor"
       stroke-width="1.4"
       stroke-linejoin="round"
+    />
+  {:else if name === 'plus'}
+    <path
+      d="M8 3.2v9.6M3.2 8h9.6"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
     />
   {:else}
     <path
