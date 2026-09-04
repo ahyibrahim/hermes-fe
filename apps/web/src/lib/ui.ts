@@ -70,6 +70,19 @@ export const RAIL_ROOMS_KEY = 'hermes.rail.roomsCollapsed';
 export const RAIL_PEOPLE_KEY = 'hermes.rail.peopleCollapsed';
 export const NOTIFY_MUTE_KEY = 'hermes.notify.muted';
 
+/** Below the old `.shell { min-width: 48rem }` floor. Keep in sync with comments in app.css. */
+export const PHONE_MAX_WIDTH_MQ = '(max-width: 47.99rem)';
+
+export function isPhoneViewport(mql?: { matches: boolean }): boolean {
+  if (mql) {
+    return mql.matches;
+  }
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia(PHONE_MAX_WIDTH_MQ).matches;
+}
+
 function draftKey(slug: string): string {
   return `hermes.draft.${slug}`;
 }
