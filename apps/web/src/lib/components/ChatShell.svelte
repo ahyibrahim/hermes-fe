@@ -14,6 +14,7 @@
     formatUnread,
     isSystemUser,
     loadDraft,
+    PHONE_MAX_WIDTH_MQ,
     RAIL_PEOPLE_KEY,
     RAIL_ROOMS_KEY,
     readCollapsed,
@@ -22,6 +23,7 @@
     writeCollapsed,
     writeNotifyMuted,
   } from '$lib/ui';
+  import { bindSfxUnlock, playSfx, unlockSfx } from '$lib/sfx';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
   import { onMount, tick } from 'svelte';
 
@@ -50,6 +52,8 @@
   let ignoreScroll = false;
   let roomsCollapsed = $state(false);
   let peopleCollapsed = $state(false);
+  let phoneViewport = $state(false);
+  let inviteeIds = $state<number[]>([]);
   let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
   let notifyMuted = $state(false);
   let callToast = $state<{ room: string; user: string } | null>(null);
@@ -82,8 +86,11 @@
         return a.username.localeCompare(b.username);
       })
   );
-  const notifyOn = $derived(notifyPerm === 'granted' && !notifyMuted);
+  const notifyOn = $derived(!notifyMuted);
   const transcriptRows = $derived(groupTranscript(messages));
+  const inviteCandidates = $derived(
+    people.filter((person) => person.username !== username && person.username !== 'hermes')
+  );
 
   function isDm(room: RoomRecord | undefined): boolean {
     if (!room) {
@@ -148,6 +155,22 @@
   }
 
   function setCollapsed(which: 'rooms' | 'people', value: boolean): void {
+    if (phoneViewport) {
+      if (value) {
+        if (which === 'rooms') {
+          roomsCollapsed = true;
+        } else {
+          peopleCollapsed = true;
+        }
+      } else if (which === 'rooms') {
+        roomsCollapsed = false;
+        peopleCollapsed = true;
+      } else {
+        peopleCollapsed = false;
+        roomsCollapsed = true;
+      }
+      return;
+    }
     if (which === 'rooms') {
       roomsCollapsed = value;
       writeCollapsed(RAIL_ROOMS_KEY, value);
@@ -155,6 +178,16 @@
       peopleCollapsed = value;
       writeCollapsed(RAIL_PEOPLE_KEY, value);
     }
+  }
+
+  function applyPhoneRails(next: boolean): void {
+    if (next) {
+      roomsCollapsed = true;
+      peopleCollapsed = true;
+      return;
+    }
+    roomsCollapsed = readCollapsed(RAIL_ROOMS_KEY);
+    peopleCollapsed = readCollapsed(RAIL_PEOPLE_KEY);
   }
 
   function isCaughtUp(slug: string | null | undefined): boolean {
@@ -187,17 +220,27 @@
     rooms = rooms.map((room) => (room.slug === slug ? { ...room, unread_count: 0 } : room));
   }
 
+  function shouldAlertIncoming(roomSlug: string, message: MessageRecord): boolean {
+    if (!roomSlug || message.sender === username || message.deleted_at) {
+      return false;
+    }
+    if (notifyMuted) {
+      return false;
+    }
+    return !isCaughtUp(roomSlug);
+  }
+
+  function maybeReceiveCue(roomSlug: string, message: MessageRecord): void {
+    if (shouldAlertIncoming(roomSlug, message)) {
+      playSfx('receive');
+    }
+  }
+
   function maybeNotify(roomSlug: string, message: MessageRecord): void {
-    if (message.sender === username) {
+    if (!shouldAlertIncoming(roomSlug, message)) {
       return;
     }
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
-      return;
-    }
-    if (notifyMuted) {
-      return;
-    }
-    if (isCaughtUp(roomSlug)) {
       return;
     }
     const room = rooms.find((entry) => entry.slug === roomSlug);
@@ -214,36 +257,35 @@
     if (typeof Notification === 'undefined') {
       return;
     }
+    if (Notification.permission !== 'default') {
+      notifyPerm = Notification.permission as 'granted' | 'denied';
+      return;
+    }
     notifyPerm = await Notification.requestPermission();
   }
 
   async function onNotifyClick(): Promise<void> {
-    if (notifyPerm === 'unsupported' || notifyPerm === 'denied') {
-      return;
-    }
-    if (notifyPerm === 'default') {
-      await askNotify();
-      return;
-    }
+    unlockSfx();
     notifyMuted = !notifyMuted;
     writeNotifyMuted(notifyMuted);
+    if (!notifyMuted) {
+      await askNotify();
+    }
   }
 
   function notifyLabel(): string {
-    if (notifyPerm === 'denied') {
-      return 'Notifications blocked in the browser';
-    }
-    if (notifyPerm === 'default') {
-      return 'Enable notifications';
-    }
-    return notifyOn ? 'Mute notifications' : 'Unmute notifications';
+    return notifyOn ? 'Mute notifications and sounds' : 'Unmute notifications and sounds';
   }
 
   async function joinCall(room = currentRoom): Promise<void> {
     if (!room || !mesh || voice.joining) {
       return;
     }
+    unlockSfx();
     await mesh.join(room);
+    if (mesh.state.room === room) {
+      playSfx('join');
+    }
   }
 
   function syncFromSession(): void {
@@ -387,8 +429,9 @@
     }
     creatingRoom = true;
     try {
-      const room = await session.createRoom(name);
+      const room = await session.createRoom(name, inviteeIds);
       newRoomName = '';
+      inviteeIds = [];
       await loadRooms();
       await selectRoom(room.slug);
     } catch (error) {
@@ -396,6 +439,10 @@
     } finally {
       creatingRoom = false;
     }
+  }
+
+  function toggleInvitee(id: number): void {
+    inviteeIds = inviteeIds.includes(id) ? inviteeIds.filter((entry) => entry !== id) : [...inviteeIds, id];
   }
 
   async function startDm(user: PublicUser): Promise<void> {
@@ -538,6 +585,8 @@
         clearDraft(currentRoom);
       }
       growComposer();
+      unlockSfx();
+      playSfx('send');
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
     } finally {
@@ -642,11 +691,32 @@
   });
 
   onMount(() => {
-    roomsCollapsed = readCollapsed(RAIL_ROOMS_KEY);
-    peopleCollapsed = readCollapsed(RAIL_PEOPLE_KEY);
+    const media = window.matchMedia(PHONE_MAX_WIDTH_MQ);
+    phoneViewport = media.matches;
+    applyPhoneRails(phoneViewport);
+    const onPhoneChange = (): void => {
+      const next = media.matches;
+      if (next === phoneViewport) {
+        return;
+      }
+      phoneViewport = next;
+      applyPhoneRails(next);
+    };
+    media.addEventListener('change', onPhoneChange);
+    const unbindSfx = bindSfxUnlock();
+
     notifyPerm =
       typeof Notification === 'undefined' ? 'unsupported' : (Notification.permission as 'default' | 'granted' | 'denied');
     notifyMuted = readNotifyMuted();
+
+    const onFirstGesture = (): void => {
+      unlockSfx();
+      if (!notifyMuted) {
+        void askNotify();
+      }
+    };
+    document.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true });
+    document.addEventListener('keydown', onFirstGesture, { once: true, capture: true });
 
     mesh = new VoiceMesh(session);
     const offVoice = mesh.subscribe((next) => {
@@ -692,6 +762,7 @@
           );
         }
         maybeNotify(message.room, message);
+        maybeReceiveCue(message.room, message);
       }),
       session.on('roomActivity', ({ room, message }) => {
         if (message.deleted_at) {
@@ -733,6 +804,7 @@
           );
         }
         maybeNotify(room, message);
+        maybeReceiveCue(room, message);
       }),
       session.on('messageDeleted', () => {
         syncFromSession();
@@ -784,6 +856,10 @@
     })();
 
     return () => {
+      media.removeEventListener('change', onPhoneChange);
+      unbindSfx();
+      document.removeEventListener('pointerdown', onFirstGesture, { capture: true });
+      document.removeEventListener('keydown', onFirstGesture, { capture: true });
       offVoice();
       void mesh?.destroy();
       mesh = undefined;
@@ -891,22 +967,40 @@
           void createGroup();
         }}
       >
-        <input
-          type="text"
-          placeholder="New room"
-          bind:value={newRoomName}
-          disabled={creatingRoom}
-          maxlength="80"
-        />
-        <IconButton
-          type="submit"
-          label="Create room"
-          tone="accent"
-          disabled={creatingRoom || !newRoomName.trim()}
-          busy={creatingRoom}
-        >
-          <IconGlyph name="plus" />
-        </IconButton>
+        <div class="new-room-row">
+          <input
+            type="text"
+            placeholder="New room"
+            bind:value={newRoomName}
+            disabled={creatingRoom}
+            maxlength="80"
+          />
+          <IconButton
+            type="submit"
+            label="Create room"
+            tone="accent"
+            disabled={creatingRoom || !newRoomName.trim()}
+            busy={creatingRoom}
+          >
+            <IconGlyph name="plus" />
+          </IconButton>
+        </div>
+        {#if inviteCandidates.length > 0}
+          <div class="invite-picker">
+            <div class="invite-picker-label">Invite</div>
+            {#each inviteCandidates as person (person.id)}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={inviteeIds.includes(person.id)}
+                  disabled={creatingRoom}
+                  onchange={() => toggleInvitee(person.id)}
+                />
+                <span class={colorClass(person.color)}>{person.username}</span>
+              </label>
+            {/each}
+          </div>
+        {/if}
       </form>
     {/if}
   </aside>
@@ -939,17 +1033,14 @@
           <IconGlyph name="call" />
         </IconButton>
       {/if}
-      {#if notifyPerm !== 'unsupported'}
         <IconButton
           label={notifyLabel()}
           title={notifyLabel()}
           pressed={notifyOn}
-          disabled={notifyPerm === 'denied'}
           onclick={() => onNotifyClick()}
         >
           <IconGlyph name={notifyOn ? 'bell' : 'bell-off'} />
         </IconButton>
-      {/if}
       <span class="status {status}">
         <span class="status-dot"></span>
         {statusLabel(status)}
@@ -975,8 +1066,14 @@
         mics={voice.mics}
         inputDeviceId={voice.inputDeviceId}
         error={voice.error}
-        onMute={(muted) => mesh?.setMuted(muted)}
-        onLeave={() => mesh?.leave()}
+        onMute={(muted) => {
+          mesh?.setMuted(muted);
+          playSfx(muted ? 'mute' : 'unmute');
+        }}
+        onLeave={() => {
+          void mesh?.leave();
+          playSfx('leave');
+        }}
         onPickMic={(deviceId) => mesh?.setInputDevice(deviceId)}
         onShowRoom={() => {
           if (voice.room) {

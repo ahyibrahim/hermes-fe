@@ -30,14 +30,16 @@
       stroke-linejoin="round"
     />
   {:else if name === 'send'}
-    <path
-      d="M2.4 8 13.6 2.8 8.8 13.6 7.4 8.6Z"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.4"
-      stroke-linejoin="round"
-    />
-    <path d="M7.4 8.6 13.6 2.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+    <g transform="translate(-1.15 1.25)">
+      <path
+        d="M2.4 8 13.6 2.8 8.8 13.6 7.4 8.6Z"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linejoin="round"
+      />
+      <path d="M7.4 8.6 13.6 2.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+    </g>
   {:else if name === 'call'}
     <path
       d="M3.2 2.8h2.6l1 2.4-1.5 1.1a8 8 0 0 0 4.4 4.4l1.1-1.5 2.4 1v2.6A1.2 1.2 0 0 1 12 14.2 10.4 10.4 0 0 1 1.8 4a1.2 1.2 0 0 1 1.4-1.2Z"
@@ -103,13 +105,15 @@
     />
     <path d="M3.2 3.2 12.8 12.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
   {:else if name === 'hangup'}
-    <path
-      d="M3.2 10.2c2.6-2.2 7-2.2 9.6 0l-1.6 1.6c-1.8-1.1-4.6-1.1-6.4 0Z"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.4"
-      stroke-linejoin="round"
-    />
+    <g transform="translate(0 -2.2)">
+      <path
+        d="M3.2 10.2c2.6-2.2 7-2.2 9.6 0l-1.6 1.6c-1.8-1.1-4.6-1.1-6.4 0Z"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linejoin="round"
+      />
+    </g>
   {:else if name === 'plus'}
     <path
       d="M8 3.2v9.6M3.2 8h9.6"

@@ -54,6 +54,7 @@ html,
 body {
   height: 100%;
   margin: 0;
+  overflow-x: hidden;
 }
 
 body {
@@ -267,17 +268,24 @@ button {
 
 .shell {
   height: 100%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   display: grid;
   grid-template-columns: 16rem minmax(0, 1fr) 14rem;
-  min-width: 48rem;
+  overflow: hidden;
 }
+
+/* Phone is below the old 48rem floor: see PHONE_MAX_WIDTH_MQ in ui.ts. */
 
 .rail {
   background: var(--bg-rail);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .rail.people {
@@ -331,11 +339,17 @@ button {
 }
 
 .new-room {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 0.35rem;
   padding: 0.5rem 0.65rem 0.85rem;
   border-top: 1px solid var(--border);
+}
+
+.new-room-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
 }
 
 .new-room input {
@@ -348,6 +362,41 @@ button {
 
 .new-room .icon-btn {
   align-self: center;
+}
+
+.invite-picker {
+  max-height: 9rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.invite-picker-label {
+  margin: 0.15rem 0 0.05rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 650;
+}
+
+.invite-picker label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.25rem;
+  border-radius: 0.3rem;
+}
+
+.invite-picker label:hover {
+  background: var(--bg-hover);
+}
+
+.invite-picker input {
+  margin: 0;
+  flex: 0 0 auto;
 }
 
 .people-list li {
@@ -419,6 +468,13 @@ button {
   padding: 0.65rem 1rem;
   border-bottom: 1px solid var(--border);
   min-height: 2.75rem;
+}
+
+@media (max-width: 47.99rem) {
+  .top-bar {
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
 }
 
 .top-bar h2 {
@@ -771,6 +827,11 @@ button {
   padding: 0.75rem 1rem 1rem;
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
+}
+
+.composer .icon-btn {
+  width: 2.6rem;
+  height: 2.6rem;
 }
 
 .composer textarea {

@@ -2,7 +2,7 @@
 
 Clients for **Hermes**, a private messenger for a small group of friends. It runs on the local network and over Tailscale, and talks to the [hermes-be](https://github.com/ahyibrahim/hermes-be) backend (one Node process, Fastify, SQLite).
 
-This repository is an npm workspaces monorepo. v0.11.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with icon chrome, an in-call drawer, Sign out on Profile, and system `hermes`).
+This repository is an npm workspaces monorepo. v0.12.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with create-time invite, phone-width rails, centered icons, and CC0 cues).
 
 ## Requirements
 
@@ -26,7 +26,9 @@ npm run build
 
 ## Web UI
 
-A cheap Discord-shaped layout: rooms on the left (create a group with the field at the bottom; DMs show as `@name`), messages and composer in the middle, people on the right (click someone to open a DM). Join call is in the room header. Switching text rooms does not hang up; a bar stays up with mute, leave, and who is speaking. Audio is peer-to-peer (WebRTC); the server only relays signaling. CLI voice is out of scope. It follows OS light/dark via `prefers-color-scheme`. There is no extra server/guild rail — Hermes has rooms, not guilds.
+A cheap Discord-shaped layout: rooms on the left (create a group with the field at the bottom and optional people from the directory; DMs show as `@name`), messages and composer in the middle, people on the right (click someone to open a DM). On a phone-width viewport both rails start closed and opening one closes the other. Join call is in the room header. Switching text rooms does not hang up; a bar stays up with mute, leave, and who is speaking. Audio is peer-to-peer (WebRTC); the server only relays signaling. Short cues mark send, an unread receive, join, leave, mute, and unmute (the notifications bell mutes them too). CLI voice is out of scope. It follows OS light/dark via `prefers-color-scheme`. There is no extra server/guild rail — Hermes has rooms, not guilds.
+
+sounds: Kenney Interface Sounds (CC0), https://kenney.nl/assets/interface-sounds
 
 ### Development
 
@@ -183,4 +185,4 @@ npm run dev:web
 
 ## Roadmap
 
-v0.11.0 is call chrome and system hermes (icon buttons, in-call drawer, Sign out on Profile). v0.10.0 was polish and recovery. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
+v0.12.0 is invite, phone shell, and cues (create-time picker, phone-width rails, icon centering, borrowed CC0 sounds). v0.11.0 was call chrome and system hermes. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
