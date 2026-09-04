@@ -6,7 +6,7 @@ without changing callers (`playSfx('send')` → `send.ogg`).
 
 | Cue    | File         | Kenney source        |
 | ------ | ------------ | -------------------- |
-| send   | send.ogg     | confirmation_002.ogg |
+| send   | send.ogg     | maximize_003.ogg     |
 | receive| receive.ogg  | pluck_002.ogg        |
 | join   | join.ogg     | maximize_002.ogg     |
 | leave  | leave.ogg    | minimize_002.ogg     |

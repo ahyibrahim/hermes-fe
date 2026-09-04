@@ -86,7 +86,7 @@
         return a.username.localeCompare(b.username);
       })
   );
-  const notifyOn = $derived(notifyPerm === 'granted' && !notifyMuted);
+  const notifyOn = $derived(!notifyMuted);
   const transcriptRows = $derived(groupTranscript(messages));
   const inviteCandidates = $derived(
     people.filter((person) => person.username !== username && person.username !== 'hermes')
@@ -257,30 +257,24 @@
     if (typeof Notification === 'undefined') {
       return;
     }
+    if (Notification.permission !== 'default') {
+      notifyPerm = Notification.permission as 'granted' | 'denied';
+      return;
+    }
     notifyPerm = await Notification.requestPermission();
   }
 
   async function onNotifyClick(): Promise<void> {
     unlockSfx();
-    if (notifyPerm === 'unsupported' || notifyPerm === 'denied') {
-      return;
-    }
-    if (notifyPerm === 'default') {
-      await askNotify();
-      return;
-    }
     notifyMuted = !notifyMuted;
     writeNotifyMuted(notifyMuted);
+    if (!notifyMuted) {
+      await askNotify();
+    }
   }
 
   function notifyLabel(): string {
-    if (notifyPerm === 'denied') {
-      return 'Notifications blocked in the browser';
-    }
-    if (notifyPerm === 'default') {
-      return 'Enable notifications';
-    }
-    return notifyOn ? 'Mute notifications' : 'Unmute notifications';
+    return notifyOn ? 'Mute notifications and sounds' : 'Unmute notifications and sounds';
   }
 
   async function joinCall(room = currentRoom): Promise<void> {
@@ -715,6 +709,15 @@
       typeof Notification === 'undefined' ? 'unsupported' : (Notification.permission as 'default' | 'granted' | 'denied');
     notifyMuted = readNotifyMuted();
 
+    const onFirstGesture = (): void => {
+      unlockSfx();
+      if (!notifyMuted) {
+        void askNotify();
+      }
+    };
+    document.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true });
+    document.addEventListener('keydown', onFirstGesture, { once: true, capture: true });
+
     mesh = new VoiceMesh(session);
     const offVoice = mesh.subscribe((next) => {
       const previousError = voice.error;
@@ -855,6 +858,8 @@
     return () => {
       media.removeEventListener('change', onPhoneChange);
       unbindSfx();
+      document.removeEventListener('pointerdown', onFirstGesture, { capture: true });
+      document.removeEventListener('keydown', onFirstGesture, { capture: true });
       offVoice();
       void mesh?.destroy();
       mesh = undefined;
@@ -1028,17 +1033,14 @@
           <IconGlyph name="call" />
         </IconButton>
       {/if}
-      {#if notifyPerm !== 'unsupported'}
         <IconButton
           label={notifyLabel()}
           title={notifyLabel()}
           pressed={notifyOn}
-          disabled={notifyPerm === 'denied'}
           onclick={() => onNotifyClick()}
         >
           <IconGlyph name={notifyOn ? 'bell' : 'bell-off'} />
         </IconButton>
-      {/if}
       <span class="status {status}">
         <span class="status-dot"></span>
         {statusLabel(status)}
