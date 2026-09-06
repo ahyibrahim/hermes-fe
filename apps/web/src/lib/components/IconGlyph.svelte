@@ -14,7 +14,9 @@
       | 'mic'
       | 'mic-off'
       | 'hangup'
-      | 'plus';
+      | 'plus'
+      | 'share'
+      | 'share-off';
     size?: number;
   } = $props();
 </script>
@@ -114,6 +116,13 @@
         stroke-linejoin="round"
       />
     </g>
+  {:else if name === 'share'}
+    <rect x="2.4" y="3.2" width="11.2" height="7.4" rx="1.1" fill="none" stroke="currentColor" stroke-width="1.4" />
+    <path d="M6.2 13h3.6M8 10.6V13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+  {:else if name === 'share-off'}
+    <rect x="2.4" y="3.2" width="11.2" height="7.4" rx="1.1" fill="none" stroke="currentColor" stroke-width="1.4" />
+    <path d="M6.2 13h3.6M8 10.6V13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+    <path d="M3.2 3.2 12.8 12.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
   {:else if name === 'plus'}
     <path
       d="M8 3.2v9.6M3.2 8h9.6"

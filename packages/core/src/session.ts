@@ -25,10 +25,12 @@ export type SessionEventMap = {
   info: { message: string };
   error: { message: string };
   authExpired: { source: 'rest' | 'ws' };
-  callPeers: { room: string; users: string[] };
+  callPeers: { room: string; users: string[]; sharing: string | null };
   userJoinedCall: { room: string; user: string };
   userLeftCall: { room: string; user: string };
   leftCall: { room: string };
+  screenShareStarted: { room: string; user: string };
+  screenShareStopped: { room: string; user: string };
   callOffer: { room: string; from: string; sdp: SessionDescriptionPayload };
   callAnswer: { room: string; from: string; sdp: SessionDescriptionPayload };
   iceCandidate: { room: string; from: string; candidate: IceCandidatePayload | null };
@@ -477,6 +479,14 @@ export class SessionController {
     this.ws.send({ type: 'ice_candidate', room, to, candidate });
   }
 
+  startScreenShare(room: string): void {
+    this.ws.send({ type: 'screen_share_start', room });
+  }
+
+  stopScreenShare(room: string): void {
+    this.ws.send({ type: 'screen_share_stop', room });
+  }
+
   shutdown(): void {
     this.shuttingDown = true;
     if (this.reconnectTimer) {
@@ -644,7 +654,21 @@ export class SessionController {
     }
 
     if (payload.type === 'call_peers' && payload.room && Array.isArray(payload.users)) {
-      this.emit('callPeers', { room: payload.room, users: payload.users });
+      this.emit('callPeers', {
+        room: payload.room,
+        users: payload.users,
+        sharing: typeof payload.sharing === 'string' ? payload.sharing : null,
+      });
+      return true;
+    }
+
+    if (payload.type === 'screen_share_started' && payload.room && typeof payload.user === 'string') {
+      this.emit('screenShareStarted', { room: payload.room, user: payload.user });
+      return true;
+    }
+
+    if (payload.type === 'screen_share_stopped' && payload.room && typeof payload.user === 'string') {
+      this.emit('screenShareStopped', { room: payload.room, user: payload.user });
       return true;
     }
 

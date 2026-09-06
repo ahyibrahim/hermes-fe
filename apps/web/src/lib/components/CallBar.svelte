@@ -14,11 +14,16 @@
     directory = [],
     mics = [],
     inputDeviceId = null,
+    sharing = null,
+    preview = null,
+    selfName = null,
     error,
     onMute,
     onLeave,
     onPickMic,
     onShowRoom,
+    onShare,
+    onStopShare,
   }: {
     roomLabel: string;
     viewingCallRoom: boolean;
@@ -28,12 +33,45 @@
     directory?: PublicUser[];
     mics?: VoiceMic[];
     inputDeviceId?: string | null;
+    sharing?: string | null;
+    preview?: MediaStream | null;
+    selfName?: string | null;
     error: string | null;
     onMute: (muted: boolean) => void;
     onLeave: () => void;
     onPickMic: (deviceId: string) => void;
     onShowRoom: () => void;
+    onShare: () => void;
+    onStopShare: () => void;
   } = $props();
+
+  let expanded = $state(false);
+  const sharingSelf = $derived(Boolean(sharing && selfName && sharing === selfName));
+
+  function bindStream(node: HTMLVideoElement, stream: MediaStream | null) {
+    node.srcObject = stream;
+    return {
+      update(next: MediaStream | null) {
+        node.srcObject = next;
+      },
+    };
+  }
+
+  function closeExpand(event?: KeyboardEvent) {
+    if (event && event.key !== 'Escape') {
+      return;
+    }
+    expanded = false;
+  }
+
+  $effect(() => {
+    if (!expanded) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => closeExpand(event);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   function lookup(name: string): PublicUser | undefined {
     return directory.find((person) => person.username === name);
@@ -94,15 +132,43 @@
             </select>
           </label>
         {/if}
+        <IconButton
+          label={sharingSelf ? 'Stop share' : sharing ? `${sharing} is sharing` : 'Share screen'}
+          disabled={joining || Boolean(sharing && !sharingSelf)}
+          pressed={sharingSelf}
+          onclick={() => (sharingSelf ? onStopShare() : onShare())}
+        >
+          <IconGlyph name={sharingSelf ? 'share-off' : 'share'} />
+        </IconButton>
         <IconButton label="Leave call" tone="danger" disabled={joining} onclick={onLeave}>
           <IconGlyph name="hangup" />
         </IconButton>
       </div>
     </div>
-    <!-- Reserved for a later screen-share preview row. Do not put a fake Share button here. -->
-    <div class="call-preview" aria-hidden="true"></div>
+    <div class="call-preview" class:active={Boolean(sharing)} aria-hidden={!sharing}>
+      {#if sharing}
+        <p class="call-share-label">{sharingSelf ? 'You are sharing' : `${sharing} is sharing`}</p>
+        {#if preview}
+          <button type="button" class="call-share-frame" onclick={() => (expanded = true)}>
+            <video use:bindStream={preview} autoplay playsinline muted={sharingSelf}></video>
+            <span class="visually-hidden">Expand screen share</span>
+          </button>
+        {/if}
+      {/if}
+    </div>
     {#if error}
       <p class="call-error">{error}</p>
     {/if}
   </div>
 </div>
+
+{#if expanded && preview}
+  <button
+    type="button"
+    class="call-share-expand"
+    aria-label="Close screen share"
+    onclick={() => (expanded = false)}
+  >
+    <video use:bindStream={preview} autoplay playsinline muted={sharingSelf}></video>
+  </button>
+{/if}
