@@ -299,6 +299,81 @@ test('call signaling relays an offer only to the target and clears on disconnect
   }
 });
 
+test('screen share state is server-authored, one slot, and clears on disconnect', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  backend.seedUser('bob', 'secret');
+  backend.seedUser('carol', 'secret');
+  const alice = createSession(backend.baseUrl);
+  const bob = createSession(backend.baseUrl);
+  const carol = createSession(backend.baseUrl);
+
+  const aliceStarted: string[] = [];
+  const bobStarted: string[] = [];
+  const carolStarted: string[] = [];
+  const bobStopped: string[] = [];
+  const carolFrames: string[] = [];
+  const bobErrors: string[] = [];
+  const carolErrors: string[] = [];
+  let bobSharing: string | null = null;
+  let carolSharing: string | null = null;
+
+  alice.on('screenShareStarted', ({ user }) => aliceStarted.push(user));
+  bob.on('screenShareStarted', ({ user }) => bobStarted.push(user));
+  carol.on('screenShareStarted', ({ user }) => carolStarted.push(user));
+  bob.on('screenShareStopped', ({ user }) => bobStopped.push(user));
+  carol.on('screenShareStarted', () => carolFrames.push('started'));
+  bob.on('error', ({ message }) => bobErrors.push(message));
+  carol.on('error', ({ message }) => carolErrors.push(message));
+  bob.on('callPeers', ({ sharing }) => {
+    bobSharing = sharing;
+  });
+  carol.on('callPeers', ({ sharing }) => {
+    carolSharing = sharing;
+  });
+
+  try {
+    await alice.login('alice', 'secret');
+    await bob.login('bob', 'secret');
+    await carol.login('carol', 'secret');
+    await alice.enterRoom('general');
+    await bob.enterRoom('general');
+    await carol.enterRoom('general');
+    await waitFor(() => alice.getConnectionStatus() === 'open');
+
+    await alice.joinCall('general');
+    await bob.joinCall('general');
+    await waitFor(() => bobSharing === null);
+
+    carol.startScreenShare('general');
+    await waitFor(() => carolErrors.some((message) => /not in that call/i.test(message)));
+
+    alice.startScreenShare('general');
+    await waitFor(() => aliceStarted.includes('alice') && bobStarted.includes('alice'));
+    assert.equal(aliceStarted[0], 'alice');
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(carolFrames.length, 0);
+
+    bob.startScreenShare('general');
+    await waitFor(() => bobErrors.some((message) => /alice is sharing/i.test(message)));
+
+    bob.stopScreenShare('general');
+    await waitFor(() => bobErrors.some((message) => /only the sharer/i.test(message)));
+
+    await carol.joinCall('general');
+    await waitFor(() => carolSharing === 'alice');
+
+    alice.shutdown();
+    await waitFor(() => bobStopped.includes('alice'));
+  } finally {
+    alice.shutdown();
+    bob.shutdown();
+    carol.shutdown();
+    await backend.close();
+  }
+});
+
 test('off-room member fan-out emits roomActivity and does not append to the open transcript', async () => {
   const backend = await startFakeBackend();
   backend.seedUser('alice', 'secret');

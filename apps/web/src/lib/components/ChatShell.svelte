@@ -64,6 +64,8 @@
     peers: [],
     mics: [],
     inputDeviceId: null,
+    sharing: null,
+    preview: null,
     error: null,
   });
   let mesh: VoiceMesh | undefined;
@@ -1065,6 +1067,9 @@
         directory={directory}
         mics={voice.mics}
         inputDeviceId={voice.inputDeviceId}
+        sharing={voice.sharing}
+        preview={voice.preview}
+        selfName={username}
         error={voice.error}
         onMute={(muted) => {
           mesh?.setMuted(muted);
@@ -1079,6 +1084,12 @@
           if (voice.room) {
             void selectRoom(voice.room);
           }
+        }}
+        onShare={() => {
+          void mesh?.startShare();
+        }}
+        onStopShare={() => {
+          void mesh?.stopShare();
         }}
       />
     {/if}

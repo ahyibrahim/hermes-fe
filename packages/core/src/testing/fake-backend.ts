@@ -123,6 +123,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   const files = new Map<number, StoredFile>();
   const clients = new Set<Client>();
   const callMembers = new Map<string, Set<string>>();
+  const callSharing = new Map<string, string>();
   const reads = new Map<string, number>();
   const hidden = new Set<string>();
   const resetTokens = new Map<string, string>();
@@ -254,6 +255,15 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   };
 
   const callRoster = (room: string): string[] => [...(callMembers.get(room) ?? [])].sort((a, b) => a.localeCompare(b));
+  const callSharingUser = (room: string): string | null => callSharing.get(room) ?? null;
+
+  const releaseShare = (room: string, username: string): void => {
+    if (callSharing.get(room) !== username) {
+      return;
+    }
+    callSharing.delete(room);
+    broadcastCall(room, { type: 'screen_share_stopped', room, user: username });
+  };
 
   const broadcastCall = (room: string, payload: unknown, exceptUser?: string): void => {
     const members = callMembers.get(room);
@@ -274,8 +284,10 @@ export async function startFakeBackend(): Promise<FakeBackend> {
       return;
     }
     members.delete(username);
+    releaseShare(room, username);
     if (members.size === 0) {
       callMembers.delete(room);
+      callSharing.delete(room);
     }
     broadcastCall(room, { type: 'user_left_call', room, user: username });
     if (notifyLeaver) {
@@ -1008,13 +1020,63 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           const wasEmpty = roster.size === 0;
           const already = roster.has(user);
           roster.add(user);
-          ws.send(JSON.stringify({ type: 'call_peers', room: roomSlug, users: callRoster(roomSlug) }));
+          ws.send(
+            JSON.stringify({
+              type: 'call_peers',
+              room: roomSlug,
+              users: callRoster(roomSlug),
+              sharing: callSharingUser(roomSlug),
+            })
+          );
           if (!already) {
             broadcastCall(roomSlug, { type: 'user_joined_call', room: roomSlug, user }, user);
             if (wasEmpty) {
               broadcastToMembers(roomSlug, { type: 'call_started', room: roomSlug, user }, user);
             }
           }
+          return;
+        }
+
+        if (payload.type === 'screen_share_start') {
+          const roomSlug = payload.room?.trim();
+          if (!roomSlug) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+            return;
+          }
+          const members = callMembers.get(roomSlug);
+          if (!members?.has(user)) {
+            ws.send(JSON.stringify({ type: 'error', content: 'not in that call' }));
+            return;
+          }
+          const current = callSharingUser(roomSlug);
+          if (current && current !== user) {
+            ws.send(JSON.stringify({ type: 'error', content: `${current} is sharing` }));
+            return;
+          }
+          if (current === user) {
+            return;
+          }
+          callSharing.set(roomSlug, user);
+          broadcastCall(roomSlug, { type: 'screen_share_started', room: roomSlug, user });
+          return;
+        }
+
+        if (payload.type === 'screen_share_stop') {
+          const roomSlug = payload.room?.trim();
+          if (!roomSlug) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+            return;
+          }
+          const members = callMembers.get(roomSlug);
+          if (!members?.has(user)) {
+            ws.send(JSON.stringify({ type: 'error', content: 'not in that call' }));
+            return;
+          }
+          if (callSharingUser(roomSlug) !== user) {
+            ws.send(JSON.stringify({ type: 'error', content: 'only the sharer can stop' }));
+            return;
+          }
+          releaseShare(roomSlug, user);
           return;
         }
 

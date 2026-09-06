@@ -23,6 +23,8 @@ export type VoiceState = {
   peers: VoicePeer[];
   mics: VoiceMic[];
   inputDeviceId: string | null;
+  sharing: string | null;
+  preview: MediaStream | null;
   error: string | null;
 };
 
@@ -36,6 +38,7 @@ type PeerSlot = {
 const SPEAKING_THRESHOLD = 18;
 const SPEAK_POLL_MS = 120;
 const INPUT_DEVICE_KEY = 'hermes.voice.inputDevice';
+const SCREEN_MAX_BITRATE = 2_000_000;
 
 function readStoredInputDevice(): string | null {
   try {
@@ -71,6 +74,8 @@ function asCandidate(candidate: IceCandidatePayload | null): RTCIceCandidateInit
 
 export class VoiceMesh {
   private localStream: MediaStream | null = null;
+  private screenStream: MediaStream | null = null;
+  private remoteScreens = new Map<string, MediaStream>();
   private iceServers: IceServer[] = [];
   private peers = new Map<string, PeerSlot>();
   private pendingIce = new Map<string, RTCIceCandidateInit[]>();
@@ -81,6 +86,7 @@ export class VoiceMesh {
   private unsubscribers: Array<() => void> = [];
   private listeners = new Set<(state: VoiceState) => void>();
   private reconnecting = false;
+  private stoppingShare = false;
   private onDeviceChange = (): void => {
     void this.handleDeviceChange();
   };
@@ -92,6 +98,8 @@ export class VoiceMesh {
     peers: [],
     mics: [],
     inputDeviceId: readStoredInputDevice(),
+    sharing: null,
+    preview: null,
     error: null,
   };
 
@@ -157,15 +165,120 @@ export class VoiceMesh {
 
   async leave(): Promise<void> {
     const room = this.state.room;
+    this.stopScreenTracks();
     this.teardownPeers();
     this.stopLocal();
-    this.setState({ room: null, joining: false, muted: false, peers: [], mics: [], error: null });
+    this.setState({
+      room: null,
+      joining: false,
+      muted: false,
+      peers: [],
+      mics: [],
+      sharing: null,
+      preview: null,
+      error: null,
+    });
     if (room) {
       try {
         await this.session.leaveCall(room);
       } catch {
         // Socket may already be gone.
       }
+    }
+  }
+
+  async startShare(): Promise<void> {
+    const room = this.state.room;
+    const me = this.session.getState().username;
+    if (!room || this.state.joining || !me) {
+      return;
+    }
+    if (this.state.sharing && this.state.sharing !== me) {
+      this.setState({ error: `${this.state.sharing} is sharing` });
+      return;
+    }
+    if (this.screenStream) {
+      return;
+    }
+    if (!window.isSecureContext || !navigator.mediaDevices?.getDisplayMedia) {
+      this.setState({
+        error:
+          'This browser will not expose screen capture on an insecure origin. Use http://127.0.0.1 on this machine, or HTTPS on the tailnet (http://ying-1 is not enough).',
+      });
+      return;
+    }
+
+    let stream: MediaStream;
+    try {
+      // Firefox rejects width/height/frameRate on getDisplayMedia ("Not supported").
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : '';
+      const denied = name === 'NotAllowedError' || name === 'NotFoundError';
+      const unsupported = name === 'NotSupportedError' || /not supported/i.test(error instanceof Error ? error.message : '');
+      this.setState({
+        error: denied
+          ? 'Screen capture was denied or is not available in this browser.'
+          : unsupported
+            ? 'This browser cannot start a screen share here. Try Firefox or Chromium on http://127.0.0.1, or HTTPS on the tailnet.'
+            : error instanceof Error
+              ? error.message
+              : String(error),
+      });
+      return;
+    }
+
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      for (const item of stream.getTracks()) {
+        item.stop();
+      }
+      this.setState({ error: 'That share did not produce a video track.' });
+      return;
+    }
+    track.contentHint = 'detail';
+    track.addEventListener('ended', () => {
+      void this.stopShare();
+    });
+
+    this.screenStream = stream;
+    try {
+      this.session.startScreenShare(room);
+      await this.attachScreenToPeers();
+      this.setState({ sharing: me, preview: stream, error: null });
+    } catch (error) {
+      this.stopScreenTracks();
+      this.setState({
+        sharing: null,
+        preview: this.remotePreview(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async stopShare(): Promise<void> {
+    if (this.stoppingShare) {
+      return;
+    }
+    this.stoppingShare = true;
+    const room = this.state.room;
+    const me = this.session.getState().username;
+    try {
+      await this.detachScreenFromPeers();
+      this.stopScreenTracks();
+      if (room && me && this.state.sharing === me) {
+        try {
+          this.session.stopScreenShare(room);
+        } catch {
+          // Socket may already be gone.
+        }
+      }
+      this.setState({
+        sharing: this.state.sharing === me ? null : this.state.sharing,
+        preview: this.remotePreview(),
+      });
+    } finally {
+      this.stoppingShare = false;
     }
   }
 
@@ -204,7 +317,7 @@ export class VoiceMesh {
 
   private bindSession(): void {
     this.unsubscribers.push(
-      this.session.on('callPeers', ({ room, users }) => {
+      this.session.on('callPeers', ({ room, users, sharing }) => {
         if (room !== this.state.room) {
           return;
         }
@@ -214,6 +327,24 @@ export class VoiceMesh {
             this.ensurePeer(user);
           }
         }
+        this.setState({ sharing, preview: this.previewFor(sharing) });
+      }),
+      this.session.on('screenShareStarted', ({ room, user }) => {
+        if (room !== this.state.room) {
+          return;
+        }
+        this.setState({ sharing: user, preview: this.previewFor(user), error: null });
+      }),
+      this.session.on('screenShareStopped', ({ room, user }) => {
+        if (room !== this.state.room) {
+          return;
+        }
+        this.remoteScreens.delete(user);
+        if (user === this.session.getState().username) {
+          this.stopScreenTracks();
+        }
+        const sharing = this.state.sharing === user ? null : this.state.sharing;
+        this.setState({ sharing, preview: this.previewFor(sharing) });
       }),
       this.session.on('userJoinedCall', ({ room, user }) => {
         if (room !== this.state.room) {
@@ -231,9 +362,18 @@ export class VoiceMesh {
       }),
       this.session.on('leftCall', ({ room }) => {
         if (room === this.state.room && !this.state.joining) {
+          this.stopScreenTracks();
           this.teardownPeers();
           this.stopLocal();
-          this.setState({ room: null, joining: false, muted: false, peers: [], mics: [] });
+          this.setState({
+            room: null,
+            joining: false,
+            muted: false,
+            peers: [],
+            mics: [],
+            sharing: null,
+            preview: null,
+          });
         }
       }),
       this.session.on('callOffer', ({ room, from, sdp }) => {
@@ -254,6 +394,20 @@ export class VoiceMesh {
         }
         void this.onRemoteIce(from, candidate);
       }),
+      this.session.on('error', ({ message }) => {
+        if (!this.screenStream) {
+          return;
+        }
+        if (!/is sharing|not in that call|only the sharer/i.test(message)) {
+          return;
+        }
+        this.stopScreenTracks();
+        this.setState({
+          sharing: this.state.sharing === this.session.getState().username ? null : this.state.sharing,
+          preview: this.remotePreview(),
+          error: message,
+        });
+      }),
       this.session.on('status', ({ status }) => {
         if (status === 'open' && this.state.room && !this.state.joining) {
           void this.rejoin();
@@ -269,7 +423,9 @@ export class VoiceMesh {
     this.reconnecting = true;
     const room = this.state.room;
     try {
+      this.stopScreenTracks();
       this.teardownPeers();
+      this.setState({ sharing: null, preview: null });
       await this.session.joinCall(room);
     } catch (error) {
       this.setState({
@@ -303,9 +459,12 @@ export class VoiceMesh {
         pc.addTrack(track, this.localStream);
       }
     }
-
-    // Future video or screen-share tracks should addTrack here and let
-    // onnegotiationneeded renegotiate. Do not stand up a second mesh.
+    if (this.screenStream) {
+      for (const track of this.screenStream.getVideoTracks()) {
+        const sender = pc.addTrack(track, this.screenStream);
+        void this.capScreenSender(sender);
+      }
+    }
 
     pc.onicecandidate = (event) => {
       const room = this.state.room;
@@ -333,9 +492,22 @@ export class VoiceMesh {
 
     pc.ontrack = (event) => {
       const stream = event.streams[0] ?? new MediaStream([event.track]);
-      audio.srcObject = stream;
-      void audio.play().catch(() => undefined);
-      this.watchStream(username, stream);
+      if (event.track.kind === 'audio') {
+        const audioOnly = new MediaStream(stream.getAudioTracks().length > 0 ? stream.getAudioTracks() : [event.track]);
+        audio.srcObject = audioOnly;
+        void audio.play().catch(() => undefined);
+        this.watchStream(username, audioOnly);
+        return;
+      }
+      if (event.track.kind === 'video') {
+        const video = new MediaStream(stream.getVideoTracks().length > 0 ? stream.getVideoTracks() : [event.track]);
+        this.remoteScreens.set(username, video);
+        event.track.addEventListener('ended', () => {
+          this.remoteScreens.delete(username);
+          this.setState({ preview: this.previewFor(this.state.sharing) });
+        });
+        this.setState({ preview: this.previewFor(this.state.sharing ?? username) });
+      }
     };
 
     pc.onconnectionstatechange = () => {
@@ -445,6 +617,7 @@ export class VoiceMesh {
       slot.audio.srcObject = null;
       this.peers.delete(username);
     }
+    this.remoteScreens.delete(username);
     this.pendingIce.delete(username);
     this.analysers.delete(username);
     this.speaking.delete(username);
@@ -557,6 +730,8 @@ export class VoiceMesh {
       track.stop();
     }
     this.localStream = null;
+    this.stopScreenTracks();
+    this.remoteScreens.clear();
     this.analysers.clear();
     this.speaking.clear();
     if (this.audioCtx) {
@@ -635,6 +810,76 @@ export class VoiceMesh {
     this.setState({ peers });
   }
 
+  private async attachScreenToPeers(): Promise<void> {
+    const stream = this.screenStream;
+    const track = stream?.getVideoTracks()[0];
+    if (!stream || !track) {
+      return;
+    }
+    for (const slot of this.peers.values()) {
+      const existing = slot.pc.getSenders().find((item) => item.track?.kind === 'video');
+      if (existing) {
+        await existing.replaceTrack(track);
+        void this.capScreenSender(existing);
+      } else {
+        const sender = slot.pc.addTrack(track, stream);
+        void this.capScreenSender(sender);
+      }
+    }
+  }
+
+  private async detachScreenFromPeers(): Promise<void> {
+    for (const slot of this.peers.values()) {
+      for (const sender of slot.pc.getSenders()) {
+        if (sender.track?.kind === 'video') {
+          try {
+            await sender.replaceTrack(null);
+          } catch {
+            slot.pc.removeTrack(sender);
+          }
+        }
+      }
+    }
+  }
+
+  private async capScreenSender(sender: RTCRtpSender): Promise<void> {
+    try {
+      const params = sender.getParameters();
+      params.encodings = params.encodings?.length
+        ? params.encodings.map((encoding) => ({ ...encoding, maxBitrate: SCREEN_MAX_BITRATE, maxFramerate: 30 }))
+        : [{ maxBitrate: SCREEN_MAX_BITRATE, maxFramerate: 30 }];
+      await sender.setParameters(params);
+    } catch {
+      // Some browsers reject setParameters before the transceiver is ready.
+    }
+  }
+
+  private stopScreenTracks(): void {
+    for (const track of this.screenStream?.getTracks() ?? []) {
+      track.stop();
+    }
+    this.screenStream = null;
+  }
+
+  private remotePreview(): MediaStream | null {
+    const sharing = this.state.sharing;
+    if (sharing && this.remoteScreens.has(sharing)) {
+      return this.remoteScreens.get(sharing) ?? null;
+    }
+    return this.remoteScreens.values().next().value ?? null;
+  }
+
+  private previewFor(sharing: string | null): MediaStream | null {
+    const me = this.session.getState().username;
+    if (sharing && sharing === me && this.screenStream) {
+      return this.screenStream;
+    }
+    if (sharing && this.remoteScreens.has(sharing)) {
+      return this.remoteScreens.get(sharing) ?? null;
+    }
+    return this.remotePreview();
+  }
+
   private snapshot(): VoiceState {
     return {
       room: this.state.room,
@@ -643,6 +888,8 @@ export class VoiceMesh {
       peers: [...this.state.peers],
       mics: [...this.state.mics],
       inputDeviceId: this.state.inputDeviceId,
+      sharing: this.state.sharing,
+      preview: this.state.preview,
       error: this.state.error,
     };
   }
