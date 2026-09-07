@@ -7,6 +7,7 @@
     selectedIds,
     isOnline,
     busy,
+    nested = false,
     onToggle,
     onConfirm,
   }: {
@@ -14,12 +15,13 @@
     selectedIds: number[];
     isOnline: (name: string) => boolean;
     busy: boolean;
+    nested?: boolean;
     onToggle: (id: number) => void;
     onConfirm: () => void;
   } = $props();
 </script>
 
-<div class="add-popup" role="dialog" aria-label="Add people">
+<div class="add-popup" class:nested role="dialog" aria-label="Add people">
   <ul class="user-list">
     {#each candidates as person (person.id)}
       <li>

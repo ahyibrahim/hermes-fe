@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { PublicUser } from '@hermes/core';
   import Avatar from '$lib/components/Avatar.svelte';
-  import HoverCard from '$lib/components/HoverCard.svelte';
 
   const CAP = 5;
 
@@ -23,12 +22,10 @@
 </script>
 
 {#if faces.length > 0}
-  <div class="member-stack" aria-label="Who can see this room">
+  <div class="member-stack" aria-hidden="true">
     {#each faces as person, index (person.username)}
       <span class="stack-face" style="z-index: {index + 1}">
-        <HoverCard user={person}>
-          <Avatar user={person} size="sm" />
-        </HoverCard>
+        <Avatar user={person} size="sm" />
       </span>
     {/each}
     {#if extra > 0}
