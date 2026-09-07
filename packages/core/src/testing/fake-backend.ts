@@ -244,6 +244,23 @@ export async function startFakeBackend(): Promise<FakeBackend> {
     }
   };
 
+  const fanOutMembership = (slug: string, addedBy: string, added: string[]): void => {
+    if (added.length === 0) {
+      return;
+    }
+    const room = rooms.get(slug);
+    if (!room) {
+      return;
+    }
+    broadcastToMembers(slug, {
+      type: 'member_added',
+      room: slug,
+      added_by: addedBy,
+      users: added,
+      members: [...room.members],
+    });
+  };
+
   const socketsFor = (username: string): Client[] =>
     [...clients].filter((client) => client.user === username && client.socket.readyState === WebSocket.OPEN);
 
@@ -599,6 +616,15 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           200,
           [...rooms.values()]
             .filter((room) => room.members.includes(username) && !hidden.has(hideKey(username, room.slug)))
+            .sort((a, b) => {
+              if (a.slug === 'general') {
+                return -1;
+              }
+              if (b.slug === 'general') {
+                return 1;
+              }
+              return a.id - b.id;
+            })
             .map((room) => ({
               id: room.id,
               slug: room.slug,
@@ -647,6 +673,11 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           members: [...members],
         };
         rooms.set(slug, room);
+        fanOutMembership(
+          slug,
+          username,
+          room.members.filter((member) => member !== username)
+        );
         sendJson(res, 200, {
           id: room.id,
           slug: room.slug,
@@ -708,6 +739,72 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           members: pair,
         };
         rooms.set(slug, room);
+        sendJson(res, 200, {
+          id: room.id,
+          slug: room.slug,
+          name: room.name,
+          type: room.type,
+          members: room.members,
+        });
+        return;
+      }
+
+      if (method === 'POST' && url.pathname === '/rooms/members') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as { room?: string; userIds?: unknown };
+        const slug = body.room?.trim() ?? '';
+        if (!slug) {
+          sendJson(res, 400, { error: 'room is required' });
+          return;
+        }
+        if (!Array.isArray(body.userIds)) {
+          sendJson(res, 400, { error: 'userIds is required' });
+          return;
+        }
+        if (slug === 'general') {
+          sendJson(res, 400, { error: 'cannot add members to general' });
+          return;
+        }
+        const room = rooms.get(slug);
+        if (!room?.members.includes(username)) {
+          sendJson(res, 403, { error: 'not a member of this room' });
+          return;
+        }
+        if (room.type === 'dm' || slug.startsWith('dm:')) {
+          sendJson(res, 400, { error: 'cannot add members to a DM' });
+          return;
+        }
+        const ids = body.userIds as unknown[];
+        if (ids.length === 0 || ids.some((id) => typeof id !== 'number' || !Number.isInteger(id))) {
+          sendJson(res, 400, { error: 'userIds is required' });
+          return;
+        }
+        const uniqueIds = [...new Set(ids as number[])];
+        const resolved: string[] = [];
+        for (const id of uniqueIds) {
+          const member = usernameById(id);
+          if (!member) {
+            sendJson(res, 404, { error: 'user not found' });
+            return;
+          }
+          if (users.get(member)?.system) {
+            sendJson(res, 400, { error: 'cannot add a system user' });
+            return;
+          }
+          resolved.push(member);
+        }
+        const added: string[] = [];
+        for (const member of resolved) {
+          if (!room.members.includes(member)) {
+            room.members.push(member);
+            markRead(member, slug);
+            added.push(member);
+          }
+        }
+        fanOutMembership(slug, username, added);
         sendJson(res, 200, {
           id: room.id,
           slug: room.slug,

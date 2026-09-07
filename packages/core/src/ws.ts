@@ -6,7 +6,9 @@ export interface WsIncomingMessage {
   type: string;
   room?: string;
   user?: string | PublicUser;
+  added_by?: string;
   users?: string[];
+  members?: string[];
   sharing?: string | null;
   message?: MessageRecord;
   content?: string;

@@ -109,6 +109,15 @@ export class HermesApi {
     await this.readJson<{ ok?: boolean }>(response, 'Leave room', true);
   }
 
+  async addRoomMembers(slug: string, userIds: number[], token: string): Promise<RoomRecord> {
+    const response = await fetch(`${this.baseUrl}/rooms/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ room: slug, userIds }),
+    });
+    return this.readJson<RoomRecord>(response, 'Add members', true);
+  }
+
   async hideRoom(room: string, token: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/rooms/hide`, {
       method: 'POST',
