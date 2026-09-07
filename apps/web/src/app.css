@@ -1084,6 +1084,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  width: min(100%, 64rem);
+  margin-inline: auto;
   padding: 0.75rem 1rem 1rem;
 }
 
@@ -1117,7 +1119,8 @@ button {
   align-items: baseline;
   gap: 0.5rem;
   min-width: 0;
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   font-size: 0.8rem;
   color: var(--text-muted);
 }
@@ -1135,17 +1138,19 @@ button {
   white-space: nowrap;
 }
 
-.msg-group-meta time {
-  margin-left: auto;
-  flex-shrink: 0;
+.msg-group > time {
+  display: block;
+  margin: 0 0 0.2rem;
+  text-align: right;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
 }
 
 .msg-group {
   grid-column: 2;
   width: fit-content;
-  max-width: 100%;
+  max-width: calc(100% - 2.2rem);
   padding: 0.55rem 0.85rem 0.65rem;
   border-radius: 0.25rem 0.85rem 0.85rem 0.85rem;
   background: color-mix(in srgb, var(--user-color, var(--text-muted)) 10%, transparent);
@@ -1751,14 +1756,27 @@ button {
   position: relative;
 }
 
-.msg-item.own {
-  padding-left: 2.15rem;
+.msg-item.own::before {
+  content: '';
+  position: absolute;
+  inset: 0 -0.85rem 0 0;
+}
+
+.msg-item.own::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 0;
+  bottom: 0;
+  width: 3.6rem;
 }
 
 .msg-item .unsend {
   position: absolute;
-  top: 0;
-  left: 0;
+  left: 100%;
+  bottom: 0;
+  z-index: 1;
+  padding-left: 1.45rem;
 }
 
 @media (hover: hover) {
@@ -1766,7 +1784,8 @@ button {
     display: none;
   }
 
-  .msg-item.own:hover .unsend {
+  .msg-item.own:hover .unsend,
+  .msg-item.own:has(.unsend:hover) .unsend {
     display: block;
   }
 }
