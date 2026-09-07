@@ -468,6 +468,7 @@ button {
 .top-bar {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 0.75rem;
   padding: 0.65rem 1rem;
   border-bottom: 1px solid var(--border);
@@ -475,6 +476,7 @@ button {
 }
 
 .top-bar-lead {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -490,22 +492,6 @@ button {
   margin-left: auto;
 }
 
-@media (max-width: 47.99rem) {
-  .top-bar {
-    flex-wrap: wrap;
-    row-gap: 0.35rem;
-  }
-
-  .top-bar-lead,
-  .top-bar-actions {
-    flex: 1 1 100%;
-  }
-
-  .top-bar-actions {
-    margin-left: 0;
-  }
-}
-
 .top-bar h2 {
   margin: 0;
   font-size: 1rem;
@@ -517,7 +503,35 @@ button {
   white-space: nowrap;
 }
 
+.room-lead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.15rem 0.25rem 0.15rem 0;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.room-lead:hover,
+.room-lead[aria-expanded='true'] {
+  background: var(--bg-hover);
+}
+
+.room-lead h2 {
+  flex: 1 1 auto;
+}
+
 .add-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.user-wrap {
   position: relative;
   flex: 0 0 auto;
 }
@@ -580,6 +594,189 @@ button {
   cursor: default;
 }
 
+.add-popup.nested {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: 100%;
+  max-height: 12rem;
+  margin-top: 0.35rem;
+  box-shadow: none;
+}
+
+.header-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  width: min(18rem, calc(100vw - 2rem));
+  max-height: 20rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow);
+  animation: add-popup-open 0.12s ease-out;
+}
+
+.header-menu.user-menu {
+  left: auto;
+  right: 0;
+  width: min(16rem, calc(100vw - 2rem));
+}
+
+@media (max-width: 47.99rem) {
+  .header-menu {
+    max-height: 14rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-menu {
+    animation: none;
+  }
+}
+
+.header-menu .user-list {
+  max-height: 12rem;
+}
+
+.menu-member {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.4rem;
+}
+
+.menu-member .status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex-shrink: 0;
+  background: var(--status-closed);
+}
+
+.menu-member .status-dot.open {
+  background: var(--status-open);
+}
+
+.header-menu.user-menu,
+.menu-actions {
+  padding: 0.25rem 0.4rem 0.45rem;
+}
+
+.menu-rule {
+  height: 0;
+  margin: 0.15rem 0.55rem 0.2rem;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  border-radius: 0.3rem;
+  padding: 0.35rem 0.4rem;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.menu-item svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.menu-item[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+.menu-item[aria-pressed='true'] svg {
+  color: var(--accent);
+}
+
+.menu-item.danger {
+  color: var(--danger);
+}
+
+.menu-who {
+  margin: 0 0 0.15rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--user-color, var(--text));
+}
+
+.menu-status {
+  margin: 0.15rem 0 0.35rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.menu-confirm {
+  margin: 0.15rem 0 0.25rem;
+  padding: 0 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.menu-confirm-row {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.whoami-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+}
+
+.whoami-btn:hover,
+.whoami-btn[aria-expanded='true'] {
+  background: var(--bg-hover);
+}
+
+.whoami-cue {
+  position: absolute;
+  right: 0.05rem;
+  bottom: 0.05rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg-panel);
+  background: var(--status-closed);
+}
+
+.whoami-cue.connecting {
+  background: var(--status-connecting);
+}
+
+.whoami-cue.error {
+  background: var(--status-error);
+}
+
 .member-stack {
   display: flex;
   align-items: center;
@@ -596,12 +793,6 @@ button {
 
 .member-stack .stack-face:first-child {
   margin-left: 0;
-}
-
-.member-stack .stack-face .hover-wrap:hover,
-.member-stack .stack-face .hover-wrap:focus-within {
-  z-index: 8;
-  position: relative;
 }
 
 .member-stack .stack-more {

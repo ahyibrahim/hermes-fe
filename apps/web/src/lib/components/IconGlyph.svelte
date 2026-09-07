@@ -16,6 +16,7 @@
       | 'hangup'
       | 'plus'
       | 'person-plus'
+      | 'profile'
       | 'leave'
       | 'share'
       | 'share-off';
@@ -109,15 +110,13 @@
     />
     <path d="M3.2 3.2 12.8 12.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
   {:else if name === 'hangup'}
-    <g transform="translate(0 -2.2)">
-      <path
-        d="M3.2 10.2c2.6-2.2 7-2.2 9.6 0l-1.6 1.6c-1.8-1.1-4.6-1.1-6.4 0Z"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.4"
-        stroke-linejoin="round"
-      />
-    </g>
+    <path
+      d="M2.4 6.2c3.6 3 7.6 3 11.2 0l-2.1 2.6c-2.3 1.5-4.7 1.5-7 0Z"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linejoin="round"
+    />
   {:else if name === 'share'}
     <rect x="2.4" y="3.2" width="11.2" height="7.4" rx="1.1" fill="none" stroke="currentColor" stroke-width="1.4" />
     <path d="M6.2 13h3.6M8 10.6V13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
@@ -131,6 +130,15 @@
       fill="none"
       stroke="currentColor"
       stroke-width="1.6"
+      stroke-linecap="round"
+    />
+  {:else if name === 'profile'}
+    <circle cx="8" cy="5.2" r="2.3" fill="none" stroke="currentColor" stroke-width="1.4" />
+    <path
+      d="M3.4 13.2c0-2.4 2-4 4.6-4s4.6 1.6 4.6 4"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
       stroke-linecap="round"
     />
   {:else if name === 'person-plus'}

@@ -1,18 +1,19 @@
 <script lang="ts">
   import type { ConnectionStatus, MessageRecord, PublicUser, RoomRecord } from '@hermes/core';
   import { groupTranscript } from '@hermes/core';
-  import { downloadAttachment, getFileIO, getSession } from '$lib/client';
+  import { goto } from '$app/navigation';
+  import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
-  import AddMembersPopup from '$lib/components/AddMembersPopup.svelte';
   import CallBar from '$lib/components/CallBar.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import MemberStack from '$lib/components/MemberStack.svelte';
   import MessageGroup from '$lib/components/MessageGroup.svelte';
+  import RoomMenu from '$lib/components/RoomMenu.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
+  import UserMenu from '$lib/components/UserMenu.svelte';
   import {
     clearDraft,
-    colorClass,
     formatUnread,
     isSystemUser,
     loadDraft,
@@ -57,8 +58,11 @@
   let phoneViewport = $state(false);
   let addInviteeIds = $state<number[]>([]);
   let showAddPicker = $state(false);
+  let showRoomMenu = $state(false);
+  let showUserMenu = $state(false);
   let addingMembers = $state(false);
-  let addWrap: HTMLDivElement | undefined = $state();
+  let roomMenuWrap: HTMLDivElement | undefined = $state();
+  let userMenuWrap: HTMLDivElement | undefined = $state();
   let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
   let notifyMuted = $state(false);
   let callToast = $state<{ room: string; user: string } | null>(null);
@@ -114,6 +118,12 @@
   const memberNames = $derived(
     !isDm(currentRoomRecord()) ? (currentRoomRecord()?.members ?? []) : []
   );
+  const roomMembers = $derived(
+    memberNames.map(
+      (name) => directory.find((person) => person.username === name) ?? { id: 0, username: name }
+    )
+  );
+  const roomMenuOpen = $derived(Boolean(currentRoomRecord() && !isDm(currentRoomRecord())));
 
   function isDm(room: RoomRecord | undefined): boolean {
     if (!room) {
@@ -411,7 +421,8 @@
       saveDraft(currentRoom, draft);
     }
     if (slug !== currentRoom) {
-      closeAddPicker();
+      closeRoomMenu();
+      closeUserMenu();
     }
     try {
       if (slug !== currentRoom) {
@@ -471,19 +482,62 @@
     addInviteeIds = [];
   }
 
+  function closeRoomMenu(): void {
+    showRoomMenu = false;
+    closeAddPicker();
+  }
+
+  function closeUserMenu(): void {
+    showUserMenu = false;
+  }
+
+  function toggleRoomMenu(): void {
+    closeUserMenu();
+    if (showRoomMenu) {
+      closeRoomMenu();
+    } else {
+      showRoomMenu = true;
+    }
+  }
+
+  function toggleUserMenu(): void {
+    closeRoomMenu();
+    showUserMenu = !showUserMenu;
+  }
+
+  function toggleAddPicker(): void {
+    showAddPicker = !showAddPicker;
+    if (!showAddPicker) {
+      addInviteeIds = [];
+    }
+  }
+
   $effect(() => {
-    if (!showAddPicker || typeof document === 'undefined') {
+    if ((!showRoomMenu && !showUserMenu) || typeof document === 'undefined') {
       return;
     }
-    const wrap = addWrap;
+    const roomWrap = roomMenuWrap;
+    const userWrap = userMenuWrap;
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') {
-        closeAddPicker();
+      if (event.key !== 'Escape') {
+        return;
       }
+      if (showAddPicker) {
+        closeAddPicker();
+        return;
+      }
+      closeRoomMenu();
+      closeUserMenu();
     }
     function onPointer(event: PointerEvent): void {
-      if (wrap && event.target instanceof Node && !wrap.contains(event.target)) {
-        closeAddPicker();
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      if (showRoomMenu && roomWrap && !roomWrap.contains(event.target)) {
+        closeRoomMenu();
+      }
+      if (showUserMenu && userWrap && !userWrap.contains(event.target)) {
+        closeUserMenu();
       }
     }
     document.addEventListener('keydown', onKey);
@@ -501,7 +555,16 @@
   }
 
   function canAddMembers(room: RoomRecord | undefined): boolean {
+    return Boolean(room && room.slug !== 'general' && !isDm(room) && addCandidates.length > 0);
+  }
+
+  function canLeaveRoom(room: RoomRecord | undefined): boolean {
     return Boolean(room && room.slug !== 'general' && !isDm(room));
+  }
+
+  async function onSignOut(): Promise<void> {
+    await signOut();
+    await goto('/login');
   }
 
   async function addToGroup(): Promise<void> {
@@ -553,6 +616,7 @@
         } else {
           currentRoom = null;
           messages = [];
+          closeRoomMenu();
         }
       }
     } catch (error) {
@@ -578,6 +642,7 @@
         } else {
           currentRoom = null;
           messages = [];
+          closeRoomMenu();
         }
       }
     } catch (error) {
@@ -1070,63 +1135,51 @@
 
   <section class="center">
     <header class="top-bar">
-      <div class="top-bar-lead">
-        <h2>
-          {#if currentRoomRecord()}
-            {#if isDm(currentRoomRecord())}
+      <div class="top-bar-lead" bind:this={roomMenuWrap}>
+        {#if roomMenuOpen}
+          <button
+            type="button"
+            class="room-lead"
+            aria-expanded={showRoomMenu}
+            aria-haspopup="menu"
+            aria-label="{roomTitle(currentRoomRecord())}, room menu"
+            onclick={toggleRoomMenu}
+          >
+            <h2>
+              <span class="hash">#</span>{roomTitle(currentRoomRecord())}
+            </h2>
+            {#if memberNames.length > 0}
+              <MemberStack names={memberNames} {directory} />
+            {/if}
+          </button>
+          {#if showRoomMenu}
+            <RoomMenu
+              members={roomMembers}
+              canAdd={canAddMembers(currentRoomRecord())}
+              candidates={addCandidates}
+              selectedIds={addInviteeIds}
+              {isOnline}
+              adding={addingMembers}
+              {showAddPicker}
+              canLeave={canLeaveRoom(currentRoomRecord())}
+              {leaving}
+              onToggleAdd={toggleAddPicker}
+              onToggleInvitee={toggleAddInvitee}
+              onConfirmAdd={() => void addToGroup()}
+              onLeave={() => void leaveSlug(currentRoom as string)}
+            />
+          {/if}
+        {:else}
+          <h2>
+            {#if currentRoomRecord()}
               <span class="hash">@</span>{roomTitle(currentRoomRecord())}
             {:else}
-              <span class="hash">#</span>{roomTitle(currentRoomRecord())}
+              Hermes
             {/if}
-          {:else}
-            Hermes
-          {/if}
-        </h2>
-        {#if memberNames.length > 0}
-          <MemberStack names={memberNames} {directory} />
+          </h2>
         {/if}
       </div>
       <div class="top-bar-actions">
-        {#if canAddMembers(currentRoomRecord()) && addCandidates.length > 0}
-          <div class="add-wrap" bind:this={addWrap}>
-            <IconButton
-              label="Add people"
-              title="Add people"
-              disabled={addingMembers}
-              pressed={showAddPicker}
-              busy={addingMembers}
-              onclick={() => {
-                showAddPicker = !showAddPicker;
-                if (!showAddPicker) {
-                  addInviteeIds = [];
-                }
-              }}
-            >
-              <IconGlyph name="person-plus" />
-            </IconButton>
-            {#if showAddPicker}
-              <AddMembersPopup
-                candidates={addCandidates}
-                selectedIds={addInviteeIds}
-                {isOnline}
-                busy={addingMembers}
-                onToggle={toggleAddInvitee}
-                onConfirm={() => void addToGroup()}
-              />
-            {/if}
-          </div>
-        {/if}
-        {#if currentRoom && currentRoom !== 'general' && !isDm(currentRoomRecord())}
-          <IconButton
-            label="Leave room"
-            title="Leave room"
-            disabled={leaving}
-            busy={leaving}
-            onclick={() => leaveSlug(currentRoom as string)}
-          >
-            <IconGlyph name="leave" />
-          </IconButton>
-        {/if}
         {#if currentRoom && !voice.room}
           <IconButton
             label="Join call"
@@ -1137,25 +1190,39 @@
             <IconGlyph name="call" />
           </IconButton>
         {/if}
-        <IconButton
-          label={notifyLabel()}
-          title={notifyLabel()}
-          pressed={notifyOn}
-          onclick={() => onNotifyClick()}
-        >
-          <IconGlyph name={notifyOn ? 'bell' : 'bell-off'} />
-        </IconButton>
-        <span class="status {status}">
-          <span class="status-dot"></span>
-          {statusLabel(status)}
-        </span>
-        {#if me}
-          <a class="whoami" href="/profile">
-            <Avatar user={me} size="sm" />
-            <span class={colorClass(me.color)}>{me.username}</span>
-          </a>
-        {:else if username}
-          <a class="whoami" href="/profile">{username}</a>
+        {#if me || username}
+          <div class="user-wrap" bind:this={userMenuWrap}>
+            <button
+              type="button"
+              class="whoami-btn"
+              class:unhealthy={status !== 'open'}
+              aria-expanded={showUserMenu}
+              aria-haspopup="menu"
+              aria-label="Account menu"
+              onclick={toggleUserMenu}
+            >
+              {#if me}
+                <Avatar user={me} size="sm" />
+              {:else}
+                <span class="avatar-face placeholder sm" aria-hidden="true">{username?.slice(0, 1).toUpperCase()}</span>
+              {/if}
+              {#if status !== 'open'}
+                <span class="whoami-cue {status}" aria-hidden="true"></span>
+              {/if}
+            </button>
+            {#if showUserMenu}
+              <UserMenu
+                username={me?.username ?? username ?? ''}
+                color={me?.color}
+                {status}
+                statusLabel={statusLabel(status)}
+                {notifyOn}
+                notifyLabel={notifyLabel()}
+                onNotify={() => void onNotifyClick()}
+                onSignOut={() => void onSignOut()}
+              />
+            {/if}
+          </div>
         {/if}
       </div>
     </header>
