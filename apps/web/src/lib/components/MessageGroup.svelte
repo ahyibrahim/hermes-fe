@@ -43,8 +43,8 @@
         />
       {/if}
     </div>
-    <header class="msg-group-meta">
-      {#if showName}
+    {#if showName}
+      <header class="msg-group-meta">
         {#if sender}
           <UserChip
             user={sender}
@@ -54,10 +54,10 @@
         {:else}
           <span class="sender">{first.sender}</span>
         {/if}
-      {/if}
-      <time datetime={first.created_at}>{formatMessageTime(first.created_at)}</time>
-    </header>
+      </header>
+    {/if}
     <div class="msg-group">
+      <time datetime={first.created_at}>{formatMessageTime(first.created_at)}</time>
       {#each messages as message (message.id)}
         <MessageItem {message} {users} own={ownName === message.sender} {onDownload} {onUnsend} />
       {/each}

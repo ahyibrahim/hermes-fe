@@ -4,7 +4,35 @@ export type MessagePart =
   | { type: 'code'; value: string }
   | { type: 'inline_code'; value: string }
   | { type: 'bold'; value: string }
-  | { type: 'italic'; value: string };
+  | { type: 'italic'; value: string }
+  | { type: 'url'; value: string };
+
+const TRAILING_URL_PUNCT = /[),.;:!?]+$/;
+
+function trimUrl(raw: string): string {
+  let value = raw;
+  while (value.length > 0) {
+    const next = value.replace(TRAILING_URL_PUNCT, '');
+    if (next === value) {
+      break;
+    }
+    value = next;
+  }
+  return value;
+}
+
+function findUrl(text: string, cursor: number): { index: number; value: string } | null {
+  const fromHere = text.slice(cursor);
+  const match = fromHere.match(/https?:\/\/[^\s<>"'`]+/i);
+  if (!match || match.index === undefined) {
+    return null;
+  }
+  const value = trimUrl(match[0]);
+  if (!/^https?:\/\/[^\s/]/i.test(value)) {
+    return null;
+  }
+  return { index: cursor + match.index, value };
+}
 
 function isNameBoundary(char: string | undefined): boolean {
   if (char === undefined) {
@@ -65,12 +93,14 @@ function parsePlain(text: string, known: string[]): MessagePart[] {
 
   while (cursor < text.length) {
     const mention = findMention(text, cursor, names);
+    const url = findUrl(text, cursor);
     const bold = findWrapped(text, cursor, '**');
     const italic = findWrapped(text, cursor, '*');
     const code = findWrapped(text, cursor, '`');
 
     const candidates = [
       mention ? { kind: 'mention' as const, index: mention.index, mention } : null,
+      url ? { kind: 'url' as const, index: url.index, url } : null,
       bold ? { kind: 'bold' as const, index: bold.index, wrap: bold } : null,
       italic && (!bold || italic.index < bold.index)
         ? { kind: 'italic' as const, index: italic.index, wrap: italic }
@@ -95,6 +125,12 @@ function parsePlain(text: string, known: string[]): MessagePart[] {
       continue;
     }
 
+    if (next.kind === 'url') {
+      parts.push({ type: 'url', value: next.url.value });
+      cursor = next.index + next.url.value.length;
+      continue;
+    }
+
     if (next.kind === 'bold') {
       parts.push({ type: 'bold', value: next.wrap.value });
       cursor = next.wrap.end;
@@ -115,9 +151,9 @@ function parsePlain(text: string, known: string[]): MessagePart[] {
 }
 
 /**
- * Split a message into mentions, fenced code (legacy), inline `code`,
- * *italic*, and **bold**. URLs stay as text. Mentions and emphasis are not
- * parsed inside fences.
+ * Split a message into mentions, http(s) URLs, fenced code (legacy), inline
+ * `code`, *italic*, and **bold**. Mentions, URLs, and emphasis are not
+ * parsed inside fences or inline code.
  */
 export function parseMessageBody(content: string, knownUsers: Iterable<string> = []): MessagePart[] {
   const known = [...new Set([...knownUsers].filter(Boolean))];

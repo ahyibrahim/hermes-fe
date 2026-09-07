@@ -737,7 +737,7 @@
   }
 
   function onComposerKey(event: KeyboardEvent): void {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !phoneViewport) {
       event.preventDefault();
       void send();
     }
@@ -1311,13 +1311,21 @@
       ondrop={onComposerDrop}
     >
       <input type="file" hidden bind:this={fileInput} onchange={onFilePicked} />
-      <IconButton
-        label="Attach file"
-        disabled={sending || !currentRoom}
-        onclick={() => fileInput?.click()}
-      >
-        <IconGlyph name="attach" />
-      </IconButton>
+      <div class="composer-attach">
+        <IconButton
+          label="Attach file"
+          disabled={sending || !currentRoom}
+          onclick={() => fileInput?.click()}
+        >
+          <IconGlyph name="attach" />
+        </IconButton>
+        {#if pendingFile}
+          <span class="attach-chip">
+            <span class="attach-chip-name">{pendingFile.name}</span>
+            <button type="button" class="row-x" onclick={clearPendingFile} title="Remove file">×</button>
+          </span>
+        {/if}
+      </div>
       <textarea
         rows="1"
         placeholder={composerHint()}
@@ -1336,12 +1344,6 @@
       >
         <IconGlyph name="send" />
       </IconButton>
-      {#if pendingFile}
-        <span class="attach-chip">
-          {pendingFile.name}
-          <button type="button" class="row-x" onclick={clearPendingFile} title="Remove file">×</button>
-        </span>
-      {/if}
     </form>
   </section>
 
