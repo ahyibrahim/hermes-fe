@@ -38,6 +38,7 @@ export type SessionEventMap = {
   callStarted: { room: string; user: string };
   messageDeleted: MessageRecord;
   userUpdated: PublicUser;
+  memberAdded: { room: string; addedBy: string; users: string[]; members: string[] };
 };
 
 type SessionListener<K extends keyof SessionEventMap> = (payload: SessionEventMap[K]) => void;
@@ -248,6 +249,13 @@ export class SessionController {
       throw new Error('Please login first.');
     }
     await this.withAuth('rest', () => this.api.hideRoom(slug, this.state.token as string));
+  }
+
+  async addRoomMembers(slug: string, userIds: number[]): Promise<RoomRecord> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.addRoomMembers(slug, userIds, this.state.token as string));
   }
 
   async unsendMessage(id: number): Promise<MessageRecord> {
@@ -537,6 +545,16 @@ export class SessionController {
 
       if (payload.type === 'user_updated' && payload.user && typeof payload.user === 'object') {
         this.emit('userUpdated', payload.user as PublicUser);
+        return;
+      }
+
+      if (payload.type === 'member_added' && payload.room && typeof payload.room === 'string') {
+        this.emit('memberAdded', {
+          room: payload.room,
+          addedBy: typeof payload.added_by === 'string' ? payload.added_by : '',
+          users: Array.isArray(payload.users) ? payload.users : [],
+          members: Array.isArray(payload.members) ? payload.members : [],
+        });
         return;
       }
 

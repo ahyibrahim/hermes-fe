@@ -299,6 +299,51 @@ test('call signaling relays an offer only to the target and clears on disconnect
   }
 });
 
+test('member_added is server-authored and reaches connected invitees without a refresh', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  backend.seedUser('bob', 'secret');
+  backend.seedUser('cara', 'secret');
+  const alice = createSession(backend.baseUrl);
+  const bob = createSession(backend.baseUrl);
+  const cara = createSession(backend.baseUrl);
+  const bobAdded: Array<{ room: string; users: string[] }> = [];
+  const caraAdded: Array<{ room: string; users: string[] }> = [];
+  bob.on('memberAdded', (payload) => bobAdded.push(payload));
+  cara.on('memberAdded', (payload) => caraAdded.push(payload));
+
+  try {
+    await alice.login('alice', 'secret');
+    await bob.login('bob', 'secret');
+    await cara.login('cara', 'secret');
+    await alice.enterRoom('general');
+    await bob.enterRoom('general');
+    await cara.enterRoom('general');
+    await waitFor(() => alice.getConnectionStatus() === 'open');
+    await waitFor(() => bob.getConnectionStatus() === 'open');
+    await waitFor(() => cara.getConnectionStatus() === 'open');
+
+    const bobId = (await alice.listUsers()).find((user) => user.username === 'bob')?.id as number;
+    const caraId = (await alice.listUsers()).find((user) => user.username === 'cara')?.id as number;
+    const room = await alice.createRoom('live-invite', [bobId]);
+    await waitFor(() => bobAdded.some((entry) => entry.room === room.slug));
+    assert.deepEqual(bobAdded[0]?.users, ['bob']);
+
+    await alice.addRoomMembers(room.slug, [caraId]);
+    await waitFor(() => caraAdded.some((entry) => entry.room === room.slug));
+    assert.deepEqual(caraAdded[0]?.users, ['cara']);
+    const bobRooms = await bob.listRooms();
+    assert.equal(bobRooms.some((entry) => entry.slug === room.slug), true);
+    const caraRooms = await cara.listRooms();
+    assert.equal(caraRooms.some((entry) => entry.slug === room.slug), true);
+  } finally {
+    alice.shutdown();
+    bob.shutdown();
+    cara.shutdown();
+    await backend.close();
+  }
+});
+
 test('screen share state is server-authored, one slot, and clears on disconnect', async () => {
   const backend = await startFakeBackend();
   backend.seedUser('alice', 'secret');

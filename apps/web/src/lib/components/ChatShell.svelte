@@ -54,6 +54,9 @@
   let peopleCollapsed = $state(false);
   let phoneViewport = $state(false);
   let inviteeIds = $state<number[]>([]);
+  let addInviteeIds = $state<number[]>([]);
+  let showAddPicker = $state(false);
+  let addingMembers = $state(false);
   let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
   let notifyMuted = $state(false);
   let callToast = $state<{ room: string; user: string } | null>(null);
@@ -74,7 +77,17 @@
   const unreadTotal = $derived(rooms.reduce((sum, room) => sum + (room.unread_count ?? 0), 0));
   const tabTitle = $derived(unreadTotal > 0 ? `(${unreadTotal}) Hermes` : 'Hermes');
   const me = $derived(directory.find((person) => person.username === username) ?? null);
-  const groupRooms = $derived(rooms.filter((room) => !isDm(room)));
+  const groupRooms = $derived(
+    [...rooms.filter((room) => !isDm(room))].sort((a, b) => {
+      if (a.slug === 'general') {
+        return -1;
+      }
+      if (b.slug === 'general') {
+        return 1;
+      }
+      return (a.id ?? 0) - (b.id ?? 0);
+    })
+  );
   const dmRooms = $derived(rooms.filter((room) => isDm(room)));
   const people = $derived(
     [...directory]
@@ -92,6 +105,9 @@
   const transcriptRows = $derived(groupTranscript(messages));
   const inviteCandidates = $derived(
     people.filter((person) => person.username !== username && person.username !== 'hermes')
+  );
+  const addCandidates = $derived(
+    inviteCandidates.filter((person) => !(currentRoomRecord()?.members ?? []).includes(person.username))
   );
 
   function isDm(room: RoomRecord | undefined): boolean {
@@ -389,6 +405,10 @@
     if (currentRoom && currentRoom !== slug) {
       saveDraft(currentRoom, draft);
     }
+    if (slug !== currentRoom) {
+      showAddPicker = false;
+      addInviteeIds = [];
+    }
     try {
       if (slug !== currentRoom) {
         await session.enterRoom(slug);
@@ -445,6 +465,34 @@
 
   function toggleInvitee(id: number): void {
     inviteeIds = inviteeIds.includes(id) ? inviteeIds.filter((entry) => entry !== id) : [...inviteeIds, id];
+  }
+
+  function toggleAddInvitee(id: number): void {
+    addInviteeIds = addInviteeIds.includes(id)
+      ? addInviteeIds.filter((entry) => entry !== id)
+      : [...addInviteeIds, id];
+  }
+
+  function canAddMembers(room: RoomRecord | undefined): boolean {
+    return Boolean(room && room.slug !== 'general' && !isDm(room));
+  }
+
+  async function addToGroup(): Promise<void> {
+    const slug = currentRoom;
+    if (!slug || addingMembers || addInviteeIds.length === 0) {
+      return;
+    }
+    addingMembers = true;
+    try {
+      await session.addRoomMembers(slug, addInviteeIds);
+      addInviteeIds = [];
+      showAddPicker = false;
+      await loadRooms();
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      addingMembers = false;
+    }
   }
 
   async function startDm(user: PublicUser): Promise<void> {
@@ -816,6 +864,9 @@
           entry.id === user.id || entry.username === user.username ? { ...entry, ...user } : entry
         );
       }),
+      session.on('memberAdded', () => {
+        void loadRooms();
+      }),
       session.on('callStarted', ({ room, user }) => {
         if (user === session.getState().username) {
           return;
@@ -1020,6 +1071,18 @@
           Hermes
         {/if}
       </h2>
+      {#if canAddMembers(currentRoomRecord()) && addCandidates.length > 0}
+        <button
+          type="button"
+          class="leave-room"
+          disabled={addingMembers}
+          onclick={() => {
+            showAddPicker = !showAddPicker;
+          }}
+        >
+          Add
+        </button>
+      {/if}
       {#if currentRoom && currentRoom !== 'general' && !isDm(currentRoomRecord())}
         <button type="button" class="leave-room" disabled={leaving} onclick={() => leaveSlug(currentRoom as string)}>
           Leave
@@ -1056,6 +1119,31 @@
         <a class="whoami" href="/profile">{username}</a>
       {/if}
     </header>
+
+    {#if showAddPicker && canAddMembers(currentRoomRecord()) && addCandidates.length > 0}
+      <div class="invite-picker header-invite">
+        <div class="invite-picker-label">Add to this room</div>
+        {#each addCandidates as person (person.id)}
+          <label>
+            <input
+              type="checkbox"
+              checked={addInviteeIds.includes(person.id)}
+              disabled={addingMembers}
+              onchange={() => toggleAddInvitee(person.id)}
+            />
+            <span class={colorClass(person.color)}>{person.username}</span>
+          </label>
+        {/each}
+        <button
+          type="button"
+          class="leave-room"
+          disabled={addingMembers || addInviteeIds.length === 0}
+          onclick={() => void addToGroup()}
+        >
+          Add
+        </button>
+      </div>
+    {/if}
 
     {#if voice.room}
       <CallBar

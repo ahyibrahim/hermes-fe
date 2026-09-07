@@ -2,7 +2,7 @@
 
 Clients for **Hermes**, a private messenger for a small group of friends. It runs on the local network and over Tailscale, and talks to the [hermes-be](https://github.com/ahyibrahim/hermes-be) backend (one Node process, Fastify, SQLite).
 
-This repository is an npm workspaces monorepo. v0.12.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with create-time invite, phone-width rails, centered icons, and CC0 cues).
+This repository is an npm workspaces monorepo. v0.14.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with create-time invite, add-later from the group header, phone-width rails, centered icons, CC0 cues, and one in-call screen share).
 
 ## Requirements
 
@@ -185,4 +185,4 @@ npm run dev:web
 
 ## Roadmap
 
-v0.13.0 is screen share (one in-call sharer, drawer preview). v0.12.0 was invite, phone shell, and cues. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
+v0.14.0 is add-later (header picker plus live fan-out so invitees do not reload). v0.13.0 was one in-call sharer with a drawer preview. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
