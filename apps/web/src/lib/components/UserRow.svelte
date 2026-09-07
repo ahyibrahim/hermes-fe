@@ -19,7 +19,6 @@
 
 <label class="user-row">
   <input type="checkbox" checked={selected} {disabled} onchange={onToggle} />
-  <span class="status-dot" class:open={online}></span>
-  <UserChip {user} />
+  <UserChip {user} {online} />
   <span class="role-label">{user.role ?? 'member'}</span>
 </label>

@@ -13,13 +13,20 @@
       | 'bell-off'
       | 'mic'
       | 'mic-off'
+      | 'mic-pick'
       | 'hangup'
       | 'plus'
       | 'person-plus'
       | 'profile'
       | 'leave'
       | 'share'
-      | 'share-off';
+      | 'share-off'
+      | 'cog'
+      | 'chevron-left'
+      | 'chevron-right'
+      | 'chevron-down'
+      | 'chevron-up'
+      | 'close';
     size?: number;
   } = $props();
 </script>
@@ -109,14 +116,39 @@
       stroke-linecap="round"
     />
     <path d="M3.2 3.2 12.8 12.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-  {:else if name === 'hangup'}
+  {:else if name === 'mic-pick'}
     <path
-      d="M2.4 6.2c3.6 3 7.6 3 11.2 0l-2.1 2.6c-2.3 1.5-4.7 1.5-7 0Z"
+      d="M6.4 2.4a1.7 1.7 0 0 1 1.7 1.7v2.6A1.7 1.7 0 0 1 6.4 8.4 1.7 1.7 0 0 1 4.7 6.7V4.1A1.7 1.7 0 0 1 6.4 2.4Z"
       fill="none"
       stroke="currentColor"
-      stroke-width="1.5"
+      stroke-width="1.3"
+    />
+    <path
+      d="M3.2 6.5a3.2 3.2 0 0 0 6.4 0M6.4 9.8v1.4"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.3"
+      stroke-linecap="round"
+    />
+    <path
+      d="M10.2 10.2 12.2 12.2 14.2 10.2"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
       stroke-linejoin="round"
     />
+  {:else if name === 'hangup'}
+    <!-- Same handset family as Join call, rotated into the hung-up pose. -->
+    <g transform="translate(8 8) rotate(135) translate(-8 -8)">
+      <path
+        d="M3.2 2.8h2.6l1 2.4-1.5 1.1a8 8 0 0 0 4.4 4.4l1.1-1.5 2.4 1v2.6A1.2 1.2 0 0 1 12 14.2 10.4 10.4 0 0 1 1.8 4a1.2 1.2 0 0 1 1.4-1.2Z"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linejoin="round"
+      />
+    </g>
   {:else if name === 'share'}
     <rect x="2.4" y="3.2" width="11.2" height="7.4" rx="1.1" fill="none" stroke="currentColor" stroke-width="1.4" />
     <path d="M6.2 13h3.6M8 10.6V13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
@@ -124,6 +156,15 @@
     <rect x="2.4" y="3.2" width="11.2" height="7.4" rx="1.1" fill="none" stroke="currentColor" stroke-width="1.4" />
     <path d="M6.2 13h3.6M8 10.6V13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
     <path d="M3.2 3.2 12.8 12.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+  {:else if name === 'cog'}
+    <path
+      d="M8.75 2.15h-1.5l-.22 1.4a3.9 3.9 0 0 0-1.2.66L4.5 3.6 3.45 4.65l.62 1.3a3.9 3.9 0 0 0-.66 1.2L2.15 7.25v1.5l1.4.22c.12.43.34.83.66 1.2l-.62 1.3L4.5 12.4l1.33-.61c.37.3.77.54 1.2.66l.22 1.4h1.5l.22-1.4c.43-.12.83-.35 1.2-.66l1.33.61 1.05-1.05-.62-1.3c.3-.37.54-.77.66-1.2l1.4-.22v-1.5l-1.4-.22a3.9 3.9 0 0 0-.66-1.2l.62-1.3L11.5 3.6l-1.33.61a3.9 3.9 0 0 0-1.2-.66L8.75 2.15Z"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.3"
+      stroke-linejoin="round"
+    />
+    <circle cx="8" cy="8" r="1.85" fill="none" stroke="currentColor" stroke-width="1.3" />
   {:else if name === 'plus'}
     <path
       d="M8 3.2v9.6M3.2 8h9.6"
@@ -172,6 +213,50 @@
       stroke-width="1.4"
       stroke-linecap="round"
       stroke-linejoin="round"
+    />
+  {:else if name === 'chevron-left'}
+    <path
+      d="M10.2 3.2 5.4 8l4.8 4.8"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  {:else if name === 'chevron-right'}
+    <path
+      d="M5.8 3.2 10.6 8 5.8 12.8"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  {:else if name === 'chevron-down'}
+    <path
+      d="M3.2 5.8 8 10.6l4.8-4.8"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  {:else if name === 'chevron-up'}
+    <path
+      d="M3.2 10.2 8 5.4l4.8 4.8"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  {:else if name === 'close'}
+    <path
+      d="M4 4 12 12M12 4 4 12"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
     />
   {:else}
     <path

@@ -1,6 +1,17 @@
 import { readNotifyMuted } from '$lib/ui';
 
-export const SFX_NAMES = ['send', 'receive', 'join', 'leave', 'mute', 'unmute'] as const;
+export const SFX_NAMES = [
+  'send',
+  'receive',
+  'join',
+  'leave',
+  'mute',
+  'unmute',
+  'share-start',
+  'share-join',
+  'share-end',
+  'share-leave',
+] as const;
 export type SfxName = (typeof SFX_NAMES)[number];
 
 const SRC: Record<SfxName, string> = {
@@ -10,6 +21,10 @@ const SRC: Record<SfxName, string> = {
   leave: '/sounds/leave.ogg',
   mute: '/sounds/mute.ogg',
   unmute: '/sounds/unmute.ogg',
+  'share-start': '/sounds/share-start.ogg',
+  'share-join': '/sounds/share-join.ogg',
+  'share-end': '/sounds/share-end.ogg',
+  'share-leave': '/sounds/share-leave.ogg',
 };
 
 const cache = new Map<SfxName, HTMLAudioElement>();
