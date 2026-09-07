@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ConnectionStatus } from '@hermes/core';
+  import IconGlyph from '$lib/components/IconGlyph.svelte';
   import { colorClass } from '$lib/ui';
 
   let {
@@ -25,8 +26,13 @@
 
 <div class="header-menu user-menu" role="dialog" aria-label="Account">
   <p class="menu-who {colorClass(color)}">{username}</p>
-  <a class="menu-item" href="/profile">Profile</a>
-  <button type="button" class="menu-item" aria-pressed={notifyOn} onclick={onNotify}>
+  <hr class="menu-rule" />
+  <a class="menu-item" href="/profile">
+    <IconGlyph name="profile" />
+    Profile
+  </a>
+  <button type="button" class="menu-item" aria-pressed={notifyOn} title={notifyLabel} onclick={onNotify}>
+    <IconGlyph name={notifyOn ? 'bell' : 'bell-off'} />
     {notifyLabel}
   </button>
   <p class="menu-status status {status}">

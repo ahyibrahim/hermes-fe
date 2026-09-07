@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PublicUser } from '@hermes/core';
   import AddMembersPopup from '$lib/components/AddMembersPopup.svelte';
+  import IconGlyph from '$lib/components/IconGlyph.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
 
   let {
@@ -47,30 +48,33 @@
     {/each}
   </ul>
   {#if canAdd || canLeave}
+    <hr class="menu-rule" />
     <div class="menu-actions">
       {#if canAdd}
-        <div class="add-wrap">
-          <button
-            type="button"
-            class="menu-item"
-            aria-expanded={showAddPicker}
-            disabled={adding}
-            onclick={onToggleAdd}
-          >
-            Add people
-          </button>
-          {#if showAddPicker}
-            <AddMembersPopup
-              nested
-              {candidates}
-              {selectedIds}
-              {isOnline}
-              busy={adding}
-              onToggle={onToggleInvitee}
-              onConfirm={onConfirmAdd}
-            />
-          {/if}
-        </div>
+        <button
+          type="button"
+          class="menu-item"
+          aria-expanded={showAddPicker}
+          disabled={adding}
+          onclick={() => {
+            confirmLeave = false;
+            onToggleAdd();
+          }}
+        >
+          <IconGlyph name="person-plus" />
+          Add people
+        </button>
+        {#if showAddPicker}
+          <AddMembersPopup
+            nested
+            {candidates}
+            {selectedIds}
+            {isOnline}
+            busy={adding}
+            onToggle={onToggleInvitee}
+            onConfirm={onConfirmAdd}
+          />
+        {/if}
       {/if}
       {#if canLeave}
         {#if !confirmLeave}
@@ -80,6 +84,7 @@
             disabled={leaving}
             onclick={() => (confirmLeave = true)}
           >
+            <IconGlyph name="leave" />
             Leave room
           </button>
         {:else}
