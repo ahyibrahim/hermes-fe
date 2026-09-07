@@ -364,49 +364,43 @@ button {
   align-self: center;
 }
 
-.invite-picker {
-  max-height: 9rem;
+.user-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
+  min-height: 0;
+  flex: 1;
 }
 
-.invite-picker-label {
-  margin: 0.15rem 0 0.05rem;
-  font-size: 0.7rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  font-weight: 650;
-}
-
-.invite-picker label {
+.user-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  width: 100%;
   font-size: 0.85rem;
-  padding: 0.2rem 0.25rem;
+  padding: 0.3rem 0.4rem;
   border-radius: 0.3rem;
 }
 
-.invite-picker label:hover {
+.user-row:hover {
   background: var(--bg-hover);
 }
 
-.invite-picker input {
+.user-row input {
   margin: 0;
   flex: 0 0 auto;
 }
 
-.header-invite {
-  padding: 0.45rem 1rem 0.65rem;
-  border-bottom: 1px solid var(--border);
+.user-row .status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex-shrink: 0;
+  background: var(--status-closed);
 }
 
-.header-invite .leave-room {
-  align-self: flex-start;
-  margin-top: 0.35rem;
+.user-row .status-dot.open {
+  background: var(--status-open);
 }
 
 .people-list li {
@@ -480,10 +474,35 @@ button {
   min-height: 2.75rem;
 }
 
+.top-bar-lead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.top-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 @media (max-width: 47.99rem) {
   .top-bar {
     flex-wrap: wrap;
     row-gap: 0.35rem;
+  }
+
+  .top-bar-lead,
+  .top-bar-actions {
+    flex: 1 1 100%;
+  }
+
+  .top-bar-actions {
+    margin-left: 0;
   }
 }
 
@@ -496,6 +515,101 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.add-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.add-popup {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  width: min(18rem, calc(100vw - 2rem));
+  max-height: 16rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow);
+  animation: add-popup-open 0.12s ease-out;
+}
+
+@media (max-width: 47.99rem) {
+  .add-popup {
+    max-height: 12rem;
+  }
+}
+
+@keyframes add-popup-open {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .add-popup {
+    animation: none;
+  }
+}
+
+.add-popup-confirm {
+  margin: 0.25rem 0.5rem 0.5rem;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  border-radius: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+.add-popup-confirm:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.add-popup-confirm:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.member-stack {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.member-stack .stack-face {
+  margin-left: -0.4rem;
+  border: 2px solid var(--bg-panel);
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.member-stack .stack-face:first-child {
+  margin-left: 0;
+}
+
+.member-stack .stack-face .hover-wrap:hover,
+.member-stack .stack-face .hover-wrap:focus-within {
+  z-index: 8;
+  position: relative;
+}
+
+.member-stack .stack-more {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 650;
+  flex-shrink: 0;
 }
 
 .status {
@@ -937,6 +1051,11 @@ button {
   background: var(--bg-hover);
 }
 
+.icon-btn[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--bg-active);
+}
+
 .icon-btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -1109,14 +1228,6 @@ button {
 
 .row-x:hover {
   color: var(--danger);
-}
-
-.leave-room {
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  border-radius: 0.35rem;
-  padding: 0.25rem 0.55rem;
-  font-size: 0.8rem;
 }
 
 .whoami {

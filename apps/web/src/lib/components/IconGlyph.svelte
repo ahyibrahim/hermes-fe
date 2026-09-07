@@ -15,6 +15,8 @@
       | 'mic-off'
       | 'hangup'
       | 'plus'
+      | 'person-plus'
+      | 'leave'
       | 'share'
       | 'share-off';
     size?: number;
@@ -130,6 +132,38 @@
       stroke="currentColor"
       stroke-width="1.6"
       stroke-linecap="round"
+    />
+  {:else if name === 'person-plus'}
+    <circle cx="6" cy="5" r="2.1" fill="none" stroke="currentColor" stroke-width="1.4" />
+    <path
+      d="M2.6 13.2c0-2.1 1.5-3.5 3.4-3.5s3.4 1.4 3.4 3.5"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
+    />
+    <path
+      d="M12.2 5.6v5.2M9.6 8.2h5.2"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
+    />
+  {:else if name === 'leave'}
+    <path
+      d="M3 3.2h6.2v9.6H3"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M7.4 8h6M11.2 5.8 13.6 8l-2.4 2.2"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
     />
   {:else}
     <path

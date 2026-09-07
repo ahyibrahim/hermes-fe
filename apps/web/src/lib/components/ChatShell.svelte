@@ -3,9 +3,11 @@
   import { groupTranscript } from '@hermes/core';
   import { downloadAttachment, getFileIO, getSession } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
+  import AddMembersPopup from '$lib/components/AddMembersPopup.svelte';
   import CallBar from '$lib/components/CallBar.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
+  import MemberStack from '$lib/components/MemberStack.svelte';
   import MessageGroup from '$lib/components/MessageGroup.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
   import {
@@ -53,10 +55,10 @@
   let roomsCollapsed = $state(false);
   let peopleCollapsed = $state(false);
   let phoneViewport = $state(false);
-  let inviteeIds = $state<number[]>([]);
   let addInviteeIds = $state<number[]>([]);
   let showAddPicker = $state(false);
   let addingMembers = $state(false);
+  let addWrap: HTMLDivElement | undefined = $state();
   let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
   let notifyMuted = $state(false);
   let callToast = $state<{ room: string; user: string } | null>(null);
@@ -103,11 +105,14 @@
   );
   const notifyOn = $derived(!notifyMuted);
   const transcriptRows = $derived(groupTranscript(messages));
-  const inviteCandidates = $derived(
-    people.filter((person) => person.username !== username && person.username !== 'hermes')
-  );
   const addCandidates = $derived(
-    inviteCandidates.filter((person) => !(currentRoomRecord()?.members ?? []).includes(person.username))
+    people.filter(
+      (person) =>
+        person.username !== username && !(currentRoomRecord()?.members ?? []).includes(person.username)
+    )
+  );
+  const memberNames = $derived(
+    !isDm(currentRoomRecord()) ? (currentRoomRecord()?.members ?? []) : []
   );
 
   function isDm(room: RoomRecord | undefined): boolean {
@@ -406,8 +411,7 @@
       saveDraft(currentRoom, draft);
     }
     if (slug !== currentRoom) {
-      showAddPicker = false;
-      addInviteeIds = [];
+      closeAddPicker();
     }
     try {
       if (slug !== currentRoom) {
@@ -451,9 +455,8 @@
     }
     creatingRoom = true;
     try {
-      const room = await session.createRoom(name, inviteeIds);
+      const room = await session.createRoom(name);
       newRoomName = '';
-      inviteeIds = [];
       await loadRooms();
       await selectRoom(room.slug);
     } catch (error) {
@@ -463,9 +466,33 @@
     }
   }
 
-  function toggleInvitee(id: number): void {
-    inviteeIds = inviteeIds.includes(id) ? inviteeIds.filter((entry) => entry !== id) : [...inviteeIds, id];
+  function closeAddPicker(): void {
+    showAddPicker = false;
+    addInviteeIds = [];
   }
+
+  $effect(() => {
+    if (!showAddPicker || typeof document === 'undefined') {
+      return;
+    }
+    const wrap = addWrap;
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        closeAddPicker();
+      }
+    }
+    function onPointer(event: PointerEvent): void {
+      if (wrap && event.target instanceof Node && !wrap.contains(event.target)) {
+        closeAddPicker();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
+  });
 
   function toggleAddInvitee(id: number): void {
     addInviteeIds = addInviteeIds.includes(id)
@@ -485,8 +512,7 @@
     addingMembers = true;
     try {
       await session.addRoomMembers(slug, addInviteeIds);
-      addInviteeIds = [];
-      showAddPicker = false;
+      closeAddPicker();
       await loadRooms();
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
@@ -1038,66 +1064,79 @@
             <IconGlyph name="plus" />
           </IconButton>
         </div>
-        {#if inviteCandidates.length > 0}
-          <div class="invite-picker">
-            <div class="invite-picker-label">Invite</div>
-            {#each inviteCandidates as person (person.id)}
-              <label>
-                <input
-                  type="checkbox"
-                  checked={inviteeIds.includes(person.id)}
-                  disabled={creatingRoom}
-                  onchange={() => toggleInvitee(person.id)}
-                />
-                <span class={colorClass(person.color)}>{person.username}</span>
-              </label>
-            {/each}
-          </div>
-        {/if}
       </form>
     {/if}
   </aside>
 
   <section class="center">
     <header class="top-bar">
-      <h2>
-        {#if currentRoomRecord()}
-          {#if isDm(currentRoomRecord())}
-            <span class="hash">@</span>{roomTitle(currentRoomRecord())}
+      <div class="top-bar-lead">
+        <h2>
+          {#if currentRoomRecord()}
+            {#if isDm(currentRoomRecord())}
+              <span class="hash">@</span>{roomTitle(currentRoomRecord())}
+            {:else}
+              <span class="hash">#</span>{roomTitle(currentRoomRecord())}
+            {/if}
           {:else}
-            <span class="hash">#</span>{roomTitle(currentRoomRecord())}
+            Hermes
           {/if}
-        {:else}
-          Hermes
+        </h2>
+        {#if memberNames.length > 0}
+          <MemberStack names={memberNames} {directory} />
         {/if}
-      </h2>
-      {#if canAddMembers(currentRoomRecord()) && addCandidates.length > 0}
-        <button
-          type="button"
-          class="leave-room"
-          disabled={addingMembers}
-          onclick={() => {
-            showAddPicker = !showAddPicker;
-          }}
-        >
-          Add
-        </button>
-      {/if}
-      {#if currentRoom && currentRoom !== 'general' && !isDm(currentRoomRecord())}
-        <button type="button" class="leave-room" disabled={leaving} onclick={() => leaveSlug(currentRoom as string)}>
-          Leave
-        </button>
-      {/if}
-      {#if currentRoom && !voice.room}
-        <IconButton
-          label="Join call"
-          disabled={voice.joining || status !== 'open'}
-          busy={voice.joining}
-          onclick={() => joinCall()}
-        >
-          <IconGlyph name="call" />
-        </IconButton>
-      {/if}
+      </div>
+      <div class="top-bar-actions">
+        {#if canAddMembers(currentRoomRecord()) && addCandidates.length > 0}
+          <div class="add-wrap" bind:this={addWrap}>
+            <IconButton
+              label="Add people"
+              title="Add people"
+              disabled={addingMembers}
+              pressed={showAddPicker}
+              busy={addingMembers}
+              onclick={() => {
+                showAddPicker = !showAddPicker;
+                if (!showAddPicker) {
+                  addInviteeIds = [];
+                }
+              }}
+            >
+              <IconGlyph name="person-plus" />
+            </IconButton>
+            {#if showAddPicker}
+              <AddMembersPopup
+                candidates={addCandidates}
+                selectedIds={addInviteeIds}
+                {isOnline}
+                busy={addingMembers}
+                onToggle={toggleAddInvitee}
+                onConfirm={() => void addToGroup()}
+              />
+            {/if}
+          </div>
+        {/if}
+        {#if currentRoom && currentRoom !== 'general' && !isDm(currentRoomRecord())}
+          <IconButton
+            label="Leave room"
+            title="Leave room"
+            disabled={leaving}
+            busy={leaving}
+            onclick={() => leaveSlug(currentRoom as string)}
+          >
+            <IconGlyph name="leave" />
+          </IconButton>
+        {/if}
+        {#if currentRoom && !voice.room}
+          <IconButton
+            label="Join call"
+            disabled={voice.joining || status !== 'open'}
+            busy={voice.joining}
+            onclick={() => joinCall()}
+          >
+            <IconGlyph name="call" />
+          </IconButton>
+        {/if}
         <IconButton
           label={notifyLabel()}
           title={notifyLabel()}
@@ -1106,44 +1145,21 @@
         >
           <IconGlyph name={notifyOn ? 'bell' : 'bell-off'} />
         </IconButton>
-      <span class="status {status}">
-        <span class="status-dot"></span>
-        {statusLabel(status)}
-      </span>
-      {#if me}
-        <a class="whoami" href="/profile">
-          <Avatar user={me} size="sm" />
-          <span class={colorClass(me.color)}>{me.username}</span>
-        </a>
-      {:else if username}
-        <a class="whoami" href="/profile">{username}</a>
-      {/if}
+        <span class="status {status}">
+          <span class="status-dot"></span>
+          {statusLabel(status)}
+        </span>
+        {#if me}
+          <a class="whoami" href="/profile">
+            <Avatar user={me} size="sm" />
+            <span class={colorClass(me.color)}>{me.username}</span>
+          </a>
+        {:else if username}
+          <a class="whoami" href="/profile">{username}</a>
+        {/if}
+      </div>
     </header>
 
-    {#if showAddPicker && canAddMembers(currentRoomRecord()) && addCandidates.length > 0}
-      <div class="invite-picker header-invite">
-        <div class="invite-picker-label">Add to this room</div>
-        {#each addCandidates as person (person.id)}
-          <label>
-            <input
-              type="checkbox"
-              checked={addInviteeIds.includes(person.id)}
-              disabled={addingMembers}
-              onchange={() => toggleAddInvitee(person.id)}
-            />
-            <span class={colorClass(person.color)}>{person.username}</span>
-          </label>
-        {/each}
-        <button
-          type="button"
-          class="leave-room"
-          disabled={addingMembers || addInviteeIds.length === 0}
-          onclick={() => void addToGroup()}
-        >
-          Add
-        </button>
-      </div>
-    {/if}
 
     {#if voice.room}
       <CallBar
