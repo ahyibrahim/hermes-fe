@@ -45,6 +45,7 @@
   let pendingFile = $state<File | null>(null);
   let sending = $state(false);
   let creatingRoom = $state(false);
+  let showCreateRoom = $state(false);
   let startingDm = $state<number | null>(null);
   let leaving = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
@@ -318,6 +319,10 @@
     await mesh.join(room);
     if (mesh.state.room === room) {
       playSfx('join');
+      const sharer = mesh.state.sharing;
+      if (sharer && sharer !== username) {
+        playSfx('share-join');
+      }
     }
   }
 
@@ -468,6 +473,7 @@
     try {
       const room = await session.createRoom(name);
       newRoomName = '';
+      showCreateRoom = false;
       await loadRooms();
       await selectRoom(room.slug);
     } catch (error) {
@@ -862,9 +868,23 @@
     mesh = new VoiceMesh(session);
     const offVoice = mesh.subscribe((next) => {
       const previousError = voice.error;
+      const prevRoom = voice.room;
+      const prevSharing = voice.sharing;
       voice = next;
       if (next.error && next.error !== previousError) {
         flash(next.error, true);
+      }
+      // Mid-call share changes only. Hangup keeps the leave cue alone; joining a
+      // call that already has a share is handled in joinCall.
+      if (prevRoom && next.room && prevSharing !== next.sharing) {
+        if (!prevSharing && next.sharing) {
+          playSfx(next.sharing === username ? 'share-start' : 'share-join');
+        } else if (prevSharing && !next.sharing) {
+          playSfx(prevSharing === username ? 'share-end' : 'share-leave');
+        } else if (prevSharing && next.sharing) {
+          playSfx(prevSharing === username ? 'share-end' : 'share-leave');
+          playSfx(next.sharing === username ? 'share-start' : 'share-join');
+        }
       }
     });
     syncFromSession();
@@ -1029,17 +1049,17 @@
       <button
         type="button"
         class="rail-toggle"
+        aria-label={roomsCollapsed ? 'Expand rooms' : 'Collapse rooms'}
         aria-expanded={!roomsCollapsed}
         onclick={() => setCollapsed('rooms', !roomsCollapsed)}
       >
-        {roomsCollapsed ? '›' : '‹'}
+        <IconGlyph name={roomsCollapsed ? 'chevron-right' : 'chevron-left'} />
       </button>
       {#if !roomsCollapsed}
         <span>rooms</span>
       {/if}
     </div>
     {#if !roomsCollapsed}
-      <div class="rail-heading sub">Rooms</div>
       {#if groupRooms.length === 0}
         <p class="empty-hint">No rooms yet.</p>
       {:else}
@@ -1079,7 +1099,7 @@
                 onclick={() => selectRoom(room.slug)}
               >
                 {#if peer}
-                  <Avatar user={peer} size="sm" />
+                  <Avatar user={peer} size="sm" online={isOnline(peer.username)} />
                 {/if}
                 <span class="room-copy">
                   <span class="room-label"><span class="hash">@</span>{roomTitle(room)}</span>
@@ -1095,41 +1115,60 @@
                 type="button"
                 class="row-x"
                 title="Close DM"
+                aria-label="Close DM"
                 disabled={leaving}
                 onclick={() => hideSlug(room.slug)}
               >
-                ×
+                <IconGlyph name="close" size={12} />
               </button>
             </li>
           {/each}
         </ul>
       {/if}
-      <form
-        class="new-room"
-        onsubmit={(event) => {
-          event.preventDefault();
-          void createGroup();
-        }}
-      >
-        <div class="new-room-row">
-          <input
-            type="text"
-            placeholder="New room"
-            bind:value={newRoomName}
-            disabled={creatingRoom}
-            maxlength="80"
-          />
-          <IconButton
-            type="submit"
-            label="Create room"
-            tone="accent"
-            disabled={creatingRoom || !newRoomName.trim()}
-            busy={creatingRoom}
-          >
-            <IconGlyph name="plus" />
-          </IconButton>
-        </div>
-      </form>
+      {#if showCreateRoom}
+        <form
+          class="new-room"
+          onsubmit={(event) => {
+            event.preventDefault();
+            void createGroup();
+          }}
+        >
+          <div class="new-room-row">
+            <input
+              type="text"
+              placeholder="New room"
+              bind:value={newRoomName}
+              disabled={creatingRoom}
+              maxlength="80"
+              aria-label="Room name"
+            />
+            <IconButton
+              type="submit"
+              label="Create room"
+              tone="accent"
+              disabled={creatingRoom || !newRoomName.trim()}
+              busy={creatingRoom}
+            >
+              <IconGlyph name="plus" />
+            </IconButton>
+            <IconButton
+              label="Cancel"
+              disabled={creatingRoom}
+              onclick={() => {
+                showCreateRoom = false;
+                newRoomName = '';
+              }}
+            >
+              <IconGlyph name="close" />
+            </IconButton>
+          </div>
+        </form>
+      {:else}
+        <button type="button" class="new-room-open" onclick={() => (showCreateRoom = true)}>
+          <IconGlyph name="plus" />
+          New room
+        </button>
+      {/if}
     {/if}
   </aside>
 
@@ -1355,10 +1394,11 @@
       <button
         type="button"
         class="rail-toggle"
+        aria-label={peopleCollapsed ? 'Expand people' : 'Collapse people'}
         aria-expanded={!peopleCollapsed}
         onclick={() => setCollapsed('people', !peopleCollapsed)}
       >
-        {peopleCollapsed ? '‹' : '›'}
+        <IconGlyph name={peopleCollapsed ? 'chevron-left' : 'chevron-right'} />
       </button>
     </div>
     {#if !peopleCollapsed}
@@ -1367,47 +1407,39 @@
       {:else}
         <ul class="people-list">
           {#each people as person (person.id)}
+            {@const activeDm =
+              Boolean(
+                currentRoomRecord() &&
+                  isDm(currentRoomRecord()) &&
+                  roomTitle(currentRoomRecord()) === person.username
+              )}
             <li>
               {#if person.username === username}
                 <span class="self">
-                  <span class="status-dot" class:open={isOnline(person.username)}></span>
-                  <UserChip user={person} />
+                  <UserChip
+                    user={person}
+                    online={isOnline(person.username)}
+                    onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
+                  />
                   <span class="role-label">{person.role ?? 'member'}</span>
                   <span class="you">you</span>
                 </span>
               {:else}
-                <div class="person-row">
+                <div class="person-row" class:active={activeDm}>
+                  <UserChip
+                    user={person}
+                    online={isOnline(person.username)}
+                    onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
+                  />
                   <button
                     type="button"
                     class="person-open"
-                    class:active={currentRoomRecord() &&
-                      isDm(currentRoomRecord()) &&
-                      roomTitle(currentRoomRecord()) === person.username}
                     disabled={startingDm != null}
                     onclick={() => startDm(person)}
                   >
-                    <span class="status-dot" class:open={isOnline(person.username)}></span>
-                    <UserChip user={person} />
                     <span class="role-label">{person.role ?? 'member'}</span>
+                    <span class="visually-hidden">Message {person.username}</span>
                   </button>
-                  {#if me?.role === 'admin' && !isSystemUser(person)}
-                    <IconButton
-                      label="Reset password for {person.username}"
-                      title="Reset password"
-                      onclick={() => resetPasswordFor(person)}
-                    >
-                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                        <circle cx="6" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.5" />
-                        <path
-                          d="M8.2 8h5.3M11.2 8v2.2M13.5 8v1.4"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="1.5"
-                          stroke-linecap="round"
-                        />
-                      </svg>
-                    </IconButton>
-                  {/if}
                 </div>
               {/if}
             </li>

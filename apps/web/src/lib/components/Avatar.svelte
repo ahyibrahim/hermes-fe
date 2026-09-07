@@ -6,9 +6,11 @@
   let {
     user,
     size = 'sm',
+    online = false,
   }: {
     user: PublicUser;
     size?: 'sm' | 'md' | 'lg';
+    online?: boolean;
   } = $props();
 
   let url = $state<string | null>(null);
@@ -30,8 +32,13 @@
   const initial = $derived((user.username?.slice(0, 1) || '?').toUpperCase());
 </script>
 
-{#if url}
-  <img class="avatar-face {size} {colorClass(user.color)}" src={url} alt="" />
-{:else}
-  <span class="avatar-face placeholder {size} {colorClass(user.color)}" aria-hidden="true">{initial}</span>
-{/if}
+<span class="avatar-wrap" class:online>
+  {#if url}
+    <img class="avatar-face {size} {colorClass(user.color)}" src={url} alt="" />
+  {:else}
+    <span class="avatar-face placeholder {size} {colorClass(user.color)}" aria-hidden="true">{initial}</span>
+  {/if}
+  {#if online}
+    <span class="presence-badge" aria-label="online"></span>
+  {/if}
+</span>
