@@ -185,4 +185,4 @@ npm run dev:web
 
 ## Roadmap
 
-v0.14.0 is add-later (header picker plus live fan-out so invitees do not reload). v0.13.0 was one in-call sharer with a drawer preview. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
+v0.15.0 is member chrome (header add popup, icon Add/Leave, who-can-see stack). v0.14.0 was add-later. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
