@@ -2,7 +2,7 @@
 
 Clients for **Hermes**, a private messenger for a small group of friends. It runs on the local network and over Tailscale, and talks to the [hermes-be](https://github.com/ahyibrahim/hermes-be) backend (one Node process, Fastify, SQLite).
 
-This repository is an npm workspaces monorepo. v0.16.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with a quiet header, a who-can-see stack, phone-width rails, centered icons, CC0 cues, and one in-call screen share).
+This repository is an npm workspaces monorepo. v0.16.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with a quiet header, a who-can-see stack, phone-width rails, centered icons, CC0 cues, and one in-call screen share). This branch adds tap-to-open profiles, phone Send, http(s) autolink, image expand, and hugging bubbles for v0.17.0.
 
 ## Requirements
 
@@ -26,7 +26,7 @@ npm run build
 
 ## Web UI
 
-A cheap Discord-shaped layout: rooms on the left (create a group with the field at the bottom; DMs show as `@name`), messages and composer in the middle, people on the right (click someone to open a DM). On a phone-width viewport both rails start closed and opening one closes the other. The header is title plus faces, Join call, and your avatar. Click a group title for members, Add, and Leave. Click your face for profile, notifications, connection status, and sign out. Switching text rooms does not hang up; a bar stays up with mute, leave, and who is speaking. One person can share a screen, window, or tab; the drawer grows a preview. Media is peer-to-peer (WebRTC); the server only relays signaling. Short cues mark send, an unread receive, join, leave, mute, and unmute (the notifications toggle in the user menu mutes them too). CLI voice is out of scope. It follows OS light/dark via `prefers-color-scheme`. There is no extra server/guild rail — Hermes has rooms, not guilds.
+A cheap Discord-shaped layout: rooms on the left (create a group with the field at the bottom; DMs show as `@name`), messages and composer in the middle, people on the right (click someone to open a DM). On a phone-width viewport both rails start closed and opening one closes the other. The header is title plus faces, Join call, and your avatar. Click a group title for members, Add, and Leave. Click your face for profile, notifications, connection status, and sign out. Tap a name in the transcript for the profile card; on a phone Enter is a new line and Send submits. http(s) links open; images expand; short messages hug their text. Switching text rooms does not hang up; a bar stays up with mute, leave, and who is speaking. One person can share a screen, window, or tab; the drawer grows a preview. Media is peer-to-peer (WebRTC); the server only relays signaling. Short cues mark send, an unread receive, join, leave, mute, and unmute (the notifications toggle in the user menu mutes them too). CLI voice is out of scope. It follows OS light/dark via `prefers-color-scheme`. There is no extra server/guild rail — Hermes has rooms, not guilds.
 
 sounds: Kenney Interface Sounds (CC0), https://kenney.nl/assets/interface-sounds
 
@@ -185,4 +185,4 @@ npm run dev:web
 
 ## Roadmap
 
-v0.16.0 is the quiet header (room menu, user menu, Join call stays). v0.15.0 was member chrome. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
+v0.17.0 is phone/touch plus transcript (autolink, images, bubbles). v0.16.0 was the quiet header. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).

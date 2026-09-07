@@ -43,6 +43,8 @@
   {#each parts as part, index (index)}
     {#if part.type === 'text'}
       {part.value}
+    {:else if part.type === 'url'}
+      <a href={part.value} target="_blank" rel="noreferrer noopener">{part.value}</a>
     {:else if part.type === 'mention'}
       {#if lookup(part.username)}
         <HoverCard user={lookup(part.username) as PublicUser}>
