@@ -8,12 +8,14 @@
     message,
     users,
     own,
+    canDelete = own,
     onDownload,
     onUnsend,
   }: {
     message: MessageRecord;
     users: PublicUser[];
     own: boolean;
+    canDelete?: boolean;
     onDownload: (message: MessageRecord) => void;
     onUnsend: (message: MessageRecord) => void;
   } = $props();
@@ -22,7 +24,7 @@
   const hasFile = $derived(!deleted && message.file_id != null && message.file_id !== '');
 </script>
 
-<div class="msg-item" class:own>
+<div class="msg-item" class:own class:can-delete={canDelete}>
   {#if deleted}
     <div class="msg-item-body tombstone">Message deleted</div>
   {:else}
@@ -38,9 +40,14 @@
         onDownload={() => onDownload(message)}
       />
     {/if}
-    {#if own}
+    {#if canDelete}
       <span class="unsend">
-        <IconButton label="Unsend" title="Unsend" tone="danger" onclick={() => onUnsend(message)}>
+        <IconButton
+          label={own ? 'Unsend' : 'Delete'}
+          title={own ? 'Unsend' : 'Delete message'}
+          tone="danger"
+          onclick={() => onUnsend(message)}
+        >
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <path
               d="M3.5 4.5h9M6.2 4.5V3.2h3.6v1.3M4.6 4.5l.6 8.2h5.6l.6-8.2"

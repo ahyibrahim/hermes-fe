@@ -48,6 +48,8 @@
   let showCreateRoom = $state(false);
   let startingDm = $state<number | null>(null);
   let leaving = $state(false);
+  let deletingRoom = $state(false);
+  let kickingId = $state<number | null>(null);
   let fileInput: HTMLInputElement | undefined = $state();
   let composer: HTMLTextAreaElement | undefined = $state();
   let scroller: HTMLDivElement | undefined = $state();
@@ -568,6 +570,16 @@
     return Boolean(room && room.slug !== 'general' && !isDm(room));
   }
 
+  function canModerateRoom(room: RoomRecord | undefined): boolean {
+    if (!room || room.slug === 'general' || isDm(room)) {
+      return false;
+    }
+    if (me?.role === 'admin') {
+      return true;
+    }
+    return me != null && room.creator_id != null && room.creator_id === me.id;
+  }
+
   async function onSignOut(): Promise<void> {
     await signOut();
     await goto('/login');
@@ -693,6 +705,64 @@
       }
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
+    }
+  }
+
+  async function setRoleFor(user: PublicUser, role: 'member' | 'admin'): Promise<void> {
+    try {
+      const updated = await session.setUserRole(user.username, role);
+      directory = directory.map((entry) =>
+        entry.id === updated.id || entry.username === updated.username ? { ...entry, ...updated } : entry
+      );
+      flash(`${updated.username} is now ${updated.role}.`);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    }
+  }
+
+  async function kickFromRoom(user: PublicUser): Promise<void> {
+    const slug = currentRoom;
+    if (!slug || kickingId != null) {
+      return;
+    }
+    kickingId = user.id;
+    try {
+      await session.kickMember(slug, user.id);
+      await loadRooms();
+      closeRoomMenu();
+      flash(`Removed ${user.username}.`);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      kickingId = null;
+    }
+  }
+
+  async function deleteCurrentRoom(): Promise<void> {
+    const slug = currentRoom;
+    if (!slug || deletingRoom) {
+      return;
+    }
+    deletingRoom = true;
+    try {
+      await session.deleteRoom(slug);
+      const remaining = rooms.filter((room) => room.slug !== slug);
+      rooms = remaining;
+      if (currentRoom === slug) {
+        const next = remaining.find((room) => room.slug === 'general') ?? remaining[0];
+        if (next) {
+          await selectRoom(next.slug);
+        } else {
+          currentRoom = null;
+          messages = [];
+        }
+      }
+      closeRoomMenu();
+      flash('Room deleted.');
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      deletingRoom = false;
     }
   }
 
@@ -978,6 +1048,34 @@
       session.on('memberAdded', () => {
         void loadRooms();
       }),
+      session.on('memberRemoved', async ({ room, users: removed }) => {
+        const meName = session.getState().username;
+        const wasKicked = Boolean(meName && removed.includes(meName));
+        await loadRooms();
+        if (wasKicked && currentRoom === room) {
+          const next = rooms.find((entry) => entry.slug === 'general') ?? rooms[0];
+          if (next) {
+            await selectRoom(next.slug);
+          } else {
+            currentRoom = null;
+            messages = [];
+          }
+          closeRoomMenu();
+        }
+      }),
+      session.on('roomDeleted', ({ room }) => {
+        rooms = rooms.filter((entry) => entry.slug !== room);
+        if (currentRoom === room) {
+          const next = rooms.find((entry) => entry.slug === 'general') ?? rooms[0];
+          if (next) {
+            void selectRoom(next.slug);
+          } else {
+            currentRoom = null;
+            messages = [];
+          }
+          closeRoomMenu();
+        }
+      }),
       session.on('callStarted', ({ room, user }) => {
         if (user === session.getState().username) {
           return;
@@ -1194,6 +1292,7 @@
           {#if showRoomMenu}
             <RoomMenu
               members={roomMembers}
+              selfUsername={username}
               canAdd={canAddMembers(currentRoomRecord())}
               candidates={addCandidates}
               selectedIds={addInviteeIds}
@@ -1201,11 +1300,20 @@
               adding={addingMembers}
               {showAddPicker}
               canLeave={canLeaveRoom(currentRoomRecord())}
+              canKick={canModerateRoom(currentRoomRecord())}
+              canDelete={canModerateRoom(currentRoomRecord())}
               {leaving}
+              deleting={deletingRoom}
+              {kickingId}
+              roomName={currentRoomRecord()?.name ?? ''}
               onToggleAdd={toggleAddPicker}
               onToggleInvitee={toggleAddInvitee}
               onConfirmAdd={() => void addToGroup()}
               onLeave={() => void leaveSlug(currentRoom as string)}
+              onKick={(user) => void kickFromRoom(user)}
+              onDelete={() => void deleteCurrentRoom()}
+              onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
+              onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
             />
           {/if}
         {:else}
@@ -1322,9 +1430,11 @@
                 users={directory}
                 showName={row.group.showName}
                 ownName={username}
+                isAdmin={me?.role === 'admin'}
                 {onDownload}
                 onUnsend={unsend}
                 onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
+                onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
               />
             {/if}
           {/each}
@@ -1420,26 +1530,32 @@
                     user={person}
                     online={isOnline(person.username)}
                     onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
+                    onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
                   />
                   <span class="role-label">{person.role ?? 'member'}</span>
                   <span class="you">you</span>
                 </span>
               {:else}
-                <div class="person-row" class:active={activeDm}>
+                <div
+                  class="person-row"
+                  class:active={activeDm}
+                  role="button"
+                  tabindex="0"
+                  onclick={() => void startDm(person)}
+                  onkeydown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      void startDm(person);
+                    }
+                  }}
+                >
                   <UserChip
                     user={person}
                     online={isOnline(person.username)}
                     onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
+                    onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
                   />
-                  <button
-                    type="button"
-                    class="person-open"
-                    disabled={startingDm != null}
-                    onclick={() => startDm(person)}
-                  >
-                    <span class="role-label">{person.role ?? 'member'}</span>
-                    <span class="visually-hidden">Message {person.username}</span>
-                  </button>
+                  <span class="role-label">{person.role ?? 'member'}</span>
                 </div>
               {/if}
             </li>

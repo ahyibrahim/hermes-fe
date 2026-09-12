@@ -11,6 +11,7 @@
     size = 'sm',
     online = false,
     onResetPassword,
+    onSetRole,
   }: {
     user: PublicUser;
     showName?: boolean;
@@ -18,10 +19,11 @@
     size?: 'sm' | 'md' | 'lg';
     online?: boolean;
     onResetPassword?: (user: PublicUser) => void;
+    onSetRole?: (user: PublicUser, role: 'member' | 'admin') => void;
   } = $props();
 </script>
 
-<HoverCard {user} {onResetPassword}>
+<HoverCard {user} {onResetPassword} {onSetRole}>
   <span class="user-chip">
     {#if showAvatar}
       <Avatar {user} {size} {online} />

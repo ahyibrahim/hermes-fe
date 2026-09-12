@@ -10,6 +10,7 @@ import {
   PublicUser,
   RegisterResponse,
   RoomRecord,
+  UserRole,
 } from './types.js';
 
 export class HermesApi {
@@ -107,6 +108,23 @@ export class HermesApi {
       body: JSON.stringify({ room }),
     });
     await this.readJson<{ ok?: boolean }>(response, 'Leave room', true);
+  }
+
+  async kickMember(room: string, userId: number, token: string): Promise<RoomRecord> {
+    const response = await fetch(`${this.baseUrl}/rooms/kick`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ room, userId }),
+    });
+    return this.readJson<RoomRecord>(response, 'Kick member', true);
+  }
+
+  async deleteRoom(slug: string, token: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/rooms/${encodeURIComponent(slug)}`, {
+      method: 'DELETE',
+      headers: this.authHeaders(token),
+    });
+    await this.readJson<{ ok?: boolean }>(response, 'Delete room', true);
   }
 
   async addRoomMembers(slug: string, userIds: number[], token: string): Promise<RoomRecord> {
@@ -219,6 +237,15 @@ export class HermesApi {
       headers: this.authHeaders(token),
     });
     return this.readJson<MessageRecord>(response, 'Unsend message', true);
+  }
+
+  async setUserRole(username: string, role: UserRole, token: string): Promise<PublicUser> {
+    const response = await fetch(`${this.baseUrl}/users/${encodeURIComponent(username)}/role`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders(token) },
+      body: JSON.stringify({ role }),
+    });
+    return this.readJson<PublicUser>(response, 'Set user role', true);
   }
 
   async issuePasswordReset(username: string, token: string): Promise<PasswordResetIssue> {
