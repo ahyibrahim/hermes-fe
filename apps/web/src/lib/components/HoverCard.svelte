@@ -9,10 +9,12 @@
     user,
     children,
     onResetPassword,
+    onSetRole,
   }: {
     user: PublicUser;
     children: Snippet;
     onResetPassword?: (user: PublicUser) => void;
+    onSetRole?: (user: PublicUser, role: 'member' | 'admin') => void;
   } = $props();
 
   let open = $state(false);
@@ -22,6 +24,7 @@
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const tapToOpen = $derived(!canHover && !nestedAction);
+  const showAdminActions = $derived(Boolean((onResetPassword || onSetRole) && !user.system));
 
   function syncHover(): void {
     canHover = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
@@ -102,18 +105,47 @@
       <div class="hover-meta">
         <div class="hover-name {colorClass(user.color)}">{user.username}</div>
         <div class="hover-role">{user.role ?? 'member'}</div>
-        {#if onResetPassword && !user.system}
-          <button
-            type="button"
-            class="reset-pw"
-            onclick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onResetPassword(user);
-            }}
-          >
-            Reset password
-          </button>
+        {#if showAdminActions}
+          {#if onSetRole}
+            {#if (user.role ?? 'member') === 'admin'}
+              <button
+                type="button"
+                class="reset-pw"
+                onclick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onSetRole(user, 'member');
+                }}
+              >
+                Demote to member
+              </button>
+            {:else}
+              <button
+                type="button"
+                class="reset-pw"
+                onclick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onSetRole(user, 'admin');
+                }}
+              >
+                Promote to admin
+              </button>
+            {/if}
+          {/if}
+          {#if onResetPassword}
+            <button
+              type="button"
+              class="reset-pw"
+              onclick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onResetPassword(user);
+              }}
+            >
+              Reset password
+            </button>
+          {/if}
         {/if}
       </div>
     </div>

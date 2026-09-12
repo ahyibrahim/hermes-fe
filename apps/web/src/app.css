@@ -741,6 +741,29 @@ button {
   color: var(--danger);
 }
 
+.menu-delete-input {
+  width: 100%;
+  margin: 0.35rem 0;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.menu-member .kick-btn,
+.menu-member .member-kick {
+  margin-left: auto;
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.menu-member .member-kick {
+  display: flex;
+  gap: 0.25rem;
+}
+
 .menu-who {
   margin: 0 0 0.15rem;
   padding: 0.4rem 0.55rem;
@@ -1984,7 +2007,9 @@ button {
   }
 
   .msg-item.own:hover .unsend,
-  .msg-item.own:has(.unsend:hover) .unsend {
+  .msg-item.own:has(.unsend:hover) .unsend,
+  .msg-item.can-delete:hover .unsend,
+  .msg-item.can-delete:has(.unsend:hover) .unsend {
     display: block;
   }
 }

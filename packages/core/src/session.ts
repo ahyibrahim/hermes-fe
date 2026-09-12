@@ -39,6 +39,8 @@ export type SessionEventMap = {
   messageDeleted: MessageRecord;
   userUpdated: PublicUser;
   memberAdded: { room: string; addedBy: string; users: string[]; members: string[] };
+  memberRemoved: { room: string; removedBy: string; users: string[]; members: string[] };
+  roomDeleted: { room: string };
 };
 
 type SessionListener<K extends keyof SessionEventMap> = (payload: SessionEventMap[K]) => void;
@@ -244,6 +246,20 @@ export class SessionController {
     await this.withAuth('rest', () => this.api.leaveRoom(slug, this.state.token as string));
   }
 
+  async kickMember(slug: string, userId: number): Promise<RoomRecord> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.kickMember(slug, userId, this.state.token as string));
+  }
+
+  async deleteRoom(slug: string): Promise<void> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    await this.withAuth('rest', () => this.api.deleteRoom(slug, this.state.token as string));
+  }
+
   async hideRoom(slug: string): Promise<void> {
     if (!this.state.token) {
       throw new Error('Please login first.');
@@ -274,6 +290,13 @@ export class SessionController {
       throw new Error('Please login first.');
     }
     return this.withAuth('rest', () => this.api.issuePasswordReset(username, this.state.token as string));
+  }
+
+  async setUserRole(username: string, role: 'member' | 'admin'): Promise<PublicUser> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    return this.withAuth('rest', () => this.api.setUserRole(username, role, this.state.token as string));
   }
 
   async redeemPasswordReset(username: string, token: string, password: string): Promise<void> {
@@ -555,6 +578,27 @@ export class SessionController {
           users: Array.isArray(payload.users) ? payload.users : [],
           members: Array.isArray(payload.members) ? payload.members : [],
         });
+        return;
+      }
+
+      if (payload.type === 'member_removed' && payload.room && typeof payload.room === 'string') {
+        this.emit('memberRemoved', {
+          room: payload.room,
+          removedBy: typeof payload.removed_by === 'string' ? payload.removed_by : '',
+          users: Array.isArray(payload.users) ? payload.users : [],
+          members: Array.isArray(payload.members) ? payload.members : [],
+        });
+        return;
+      }
+
+      if (payload.type === 'room_deleted' && payload.room && typeof payload.room === 'string') {
+        if (this.state.room === payload.room) {
+          this.state.room = null;
+          this.state.messages = [];
+          this.state.roomUsers = [];
+          this.displayedMessageIds.clear();
+        }
+        this.emit('roomDeleted', { room: payload.room });
         return;
       }
 

@@ -10,18 +10,22 @@
     users,
     showName,
     ownName,
+    isAdmin = false,
     onDownload,
     onUnsend,
     onResetPassword,
+    onSetRole,
   }: {
     messages: MessageRecord[];
     sender: PublicUser | undefined;
     users: PublicUser[];
     showName: boolean;
     ownName: string | null;
+    isAdmin?: boolean;
     onDownload: (message: MessageRecord) => void;
     onUnsend: (message: MessageRecord) => void;
     onResetPassword?: (user: PublicUser) => void;
+    onSetRole?: (user: PublicUser, role: 'member' | 'admin') => void;
   } = $props();
 
   const first = $derived(messages[0]);
@@ -40,6 +44,7 @@
           showName={false}
           size="md"
           onResetPassword={ownName === sender.username ? undefined : onResetPassword}
+          onSetRole={ownName === sender.username ? undefined : onSetRole}
         />
       {/if}
     </div>
@@ -50,6 +55,7 @@
             user={sender}
             showAvatar={false}
             onResetPassword={ownName === sender.username ? undefined : onResetPassword}
+            onSetRole={ownName === sender.username ? undefined : onSetRole}
           />
         {:else}
           <span class="sender">{first.sender}</span>
@@ -59,7 +65,14 @@
     <div class="msg-group">
       <time datetime={first.created_at}>{formatMessageTime(first.created_at)}</time>
       {#each messages as message (message.id)}
-        <MessageItem {message} {users} own={ownName === message.sender} {onDownload} {onUnsend} />
+        <MessageItem
+          {message}
+          {users}
+          own={ownName === message.sender}
+          canDelete={ownName === message.sender || isAdmin}
+          {onDownload}
+          {onUnsend}
+        />
       {/each}
     </div>
   </section>

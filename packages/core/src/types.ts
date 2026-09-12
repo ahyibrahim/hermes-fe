@@ -75,6 +75,7 @@ export interface RoomRecord {
   name: string;
   type?: string;
   created_at?: string;
+  creator_id?: number | null;
   members?: string[];
   unread_count?: number;
   last_message?: LastMessagePreview | null;

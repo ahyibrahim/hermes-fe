@@ -584,6 +584,49 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         return;
       }
 
+      const roleMatch = /^\/users\/([^/]+)\/role$/.exec(url.pathname);
+      if (method === 'PATCH' && roleMatch) {
+        const actorName = requireUser(req, res);
+        if (!actorName) {
+          return;
+        }
+        const actor = users.get(actorName);
+        if (!actor || actor.role !== 'admin') {
+          sendJson(res, 403, { error: 'admin required' });
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as { role?: string };
+        if (body.role !== 'admin' && body.role !== 'member') {
+          sendJson(res, 400, { error: 'role must be admin or member' });
+          return;
+        }
+        const targetName = decodeURIComponent(roleMatch[1]).trim().toLowerCase();
+        const target = users.get(targetName);
+        if (!target) {
+          sendJson(res, 404, { error: 'user not found' });
+          return;
+        }
+        if (target.system) {
+          sendJson(res, 400, { error: 'cannot change a system user role' });
+          return;
+        }
+        if (
+          target.role === 'admin' &&
+          body.role === 'member' &&
+          [...users.values()].filter((user) => user.role === 'admin' && !user.system).length <= 1
+        ) {
+          sendJson(res, 400, { error: 'cannot demote the last admin' });
+          return;
+        }
+        target.role = body.role;
+        const profile = profileOf(targetName);
+        for (const name of new Set([...clients].map((client) => client.user))) {
+          sendToUser(name, { type: 'user_updated', user: profile });
+        }
+        sendJson(res, 200, profile);
+        return;
+      }
+
       if (method === 'GET' && url.pathname === '/users/online') {
         const username = requireUser(req, res);
         if (!username) {
@@ -630,6 +673,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
               slug: room.slug,
               name: room.name,
               type: room.type ?? 'group',
+              creator_id: room.creator_id ?? null,
               members: [...new Set([...room.members, ...connectedUsers(room.slug)])],
               unread_count: unreadCount(username, room.slug),
               last_message: lastMessagePreview(room.slug),
@@ -670,6 +714,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           slug,
           name,
           type: 'group',
+          creator_id: creator.id,
           members: [...members],
         };
         rooms.set(slug, room);
@@ -683,6 +728,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           slug: room.slug,
           name: room.name,
           type: room.type,
+          creator_id: room.creator_id,
           members: room.members,
         });
         return;
@@ -844,6 +890,120 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         return;
       }
 
+      if (method === 'POST' && url.pathname === '/rooms/kick') {
+        const actorName = requireUser(req, res);
+        if (!actorName) {
+          return;
+        }
+        const actor = users.get(actorName);
+        if (!actor) {
+          sendJson(res, 401, { error: 'authentication required' });
+          return;
+        }
+        const body = JSON.parse((await readBody(req)).toString()) as { room?: string; userId?: unknown };
+        const slug = body.room?.trim() ?? '';
+        if (!slug) {
+          sendJson(res, 400, { error: 'room is required' });
+          return;
+        }
+        if (typeof body.userId !== 'number' || !Number.isInteger(body.userId)) {
+          sendJson(res, 400, { error: 'userId is required' });
+          return;
+        }
+        const room = rooms.get(slug);
+        if (!room) {
+          sendJson(res, 404, { error: 'room not found' });
+          return;
+        }
+        if (slug === 'general' || room.type === 'dm' || slug.startsWith('dm:')) {
+          sendJson(res, 403, { error: 'forbidden' });
+          return;
+        }
+        const mayKick = actor.role === 'admin' || room.creator_id === actor.id;
+        if (!mayKick) {
+          sendJson(res, 403, { error: 'forbidden' });
+          return;
+        }
+        if (body.userId === actor.id) {
+          sendJson(res, 400, { error: 'cannot kick yourself' });
+          return;
+        }
+        const targetName = usernameById(body.userId);
+        const target = targetName ? users.get(targetName) : undefined;
+        if (!targetName || !target) {
+          sendJson(res, 404, { error: 'user not found' });
+          return;
+        }
+        if (target.system) {
+          sendJson(res, 400, { error: 'cannot kick a system user' });
+          return;
+        }
+        if (!room.members.includes(targetName)) {
+          sendJson(res, 404, { error: 'not a member of this room' });
+          return;
+        }
+        room.members = room.members.filter((member) => member !== targetName);
+        const payload = {
+          type: 'member_removed',
+          room: slug,
+          removed_by: actorName,
+          users: [targetName],
+          members: [...room.members],
+        };
+        broadcastToMembers(slug, payload);
+        sendToUser(targetName, payload);
+        sendJson(res, 200, {
+          id: room.id,
+          slug: room.slug,
+          name: room.name,
+          type: room.type,
+          creator_id: room.creator_id ?? null,
+          members: room.members,
+        });
+        return;
+      }
+
+      const deleteRoomMatch = /^\/rooms\/([^/]+)$/.exec(url.pathname);
+      if (method === 'DELETE' && deleteRoomMatch && !['leave', 'hide', 'members', 'read', 'dm', 'kick'].includes(deleteRoomMatch[1])) {
+        const actorName = requireUser(req, res);
+        if (!actorName) {
+          return;
+        }
+        const actor = users.get(actorName);
+        if (!actor) {
+          sendJson(res, 401, { error: 'authentication required' });
+          return;
+        }
+        const slug = decodeURIComponent(deleteRoomMatch[1]).trim().toLowerCase();
+        const room = rooms.get(slug);
+        if (!room) {
+          sendJson(res, 404, { error: 'room not found' });
+          return;
+        }
+        if (slug === 'general' || room.type === 'dm' || slug.startsWith('dm:')) {
+          sendJson(res, 403, { error: 'forbidden' });
+          return;
+        }
+        const mayDelete = actor.role === 'admin' || room.creator_id === actor.id;
+        if (!mayDelete) {
+          sendJson(res, 403, { error: 'forbidden' });
+          return;
+        }
+        const members = [...room.members];
+        rooms.delete(slug);
+        for (let i = messages.length - 1; i >= 0; i -= 1) {
+          if (messages[i].room === slug) {
+            messages.splice(i, 1);
+          }
+        }
+        const payload = { type: 'room_deleted', room: slug };
+        for (const member of members) {
+          sendToUser(member, payload);
+        }
+        sendJson(res, 200, { ok: true, room: slug });
+        return;
+      }
+
       if (method === 'POST' && url.pathname === '/rooms/hide') {
         const username = requireUser(req, res);
         if (!username) {
@@ -950,8 +1110,8 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 404, { error: 'message not found' });
           return;
         }
-        if (existing.sender !== username) {
-          sendJson(res, 403, { error: 'only the sender can unsend' });
+        if (existing.sender !== username && users.get(username)?.role !== 'admin') {
+          sendJson(res, 403, { error: 'only the sender or an admin can delete' });
           return;
         }
         existing.content = '';
