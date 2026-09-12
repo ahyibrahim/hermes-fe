@@ -10,6 +10,7 @@ export interface YtPlayer {
   getPlayerState(): YtPlayerState;
   getPlaybackRate(): number;
   setPlaybackRate(rate: number): void;
+  setSize(width: number, height: number): void;
   mute(): void;
   unMute(): void;
   isMuted(): boolean;
@@ -21,6 +22,8 @@ interface YtNamespace {
     el: HTMLElement | string,
     opts: {
       videoId: string;
+      width?: string | number;
+      height?: string | number;
       playerVars?: Record<string, string | number>;
       events?: {
         onReady?: (event: { target: YtPlayer }) => void;
@@ -141,19 +144,34 @@ export function applyWatchState(
   return { playAttempted: false };
 }
 
+function sizePlayerToBox(player: YtPlayer, box: HTMLElement): void {
+  const width = Math.max(1, Math.round(box.clientWidth));
+  const height = Math.max(1, Math.round(box.clientHeight));
+  try {
+    player.setSize(width, height);
+  } catch {
+    // Ignore until the iframe is ready.
+  }
+}
+
 export async function createYouTubePlayer(
   mount: HTMLElement,
   videoId: string,
   handlers: {
     onReady?: (player: YtPlayer) => void;
     onStateChange?: (state: YtPlayerState, player: YtPlayer) => void;
+    /** Element whose client box drives setSize (defaults to mount.parentElement ?? mount). */
+    sizeBox?: HTMLElement;
   } = {}
-): Promise<YtPlayer> {
+): Promise<YtPlayer & { disconnectResize?: () => void }> {
   const YT = await loadYouTubeApi();
+  const sizeBox = handlers.sizeBox ?? mount.parentElement ?? mount;
   return new Promise((resolve, reject) => {
     try {
       const player = new YT.Player(mount, {
         videoId,
+        width: sizeBox.clientWidth || '100%',
+        height: sizeBox.clientHeight || '100%',
         playerVars: {
           autoplay: 0,
           controls: 1,
@@ -164,8 +182,16 @@ export async function createYouTubePlayer(
         },
         events: {
           onReady: (event) => {
+            sizePlayerToBox(event.target, sizeBox);
+            const ro =
+              typeof ResizeObserver !== 'undefined'
+                ? new ResizeObserver(() => sizePlayerToBox(event.target, sizeBox))
+                : null;
+            ro?.observe(sizeBox);
+            const wrapped = event.target as YtPlayer & { disconnectResize?: () => void };
+            wrapped.disconnectResize = () => ro?.disconnect();
             handlers.onReady?.(event.target);
-            resolve(event.target);
+            resolve(wrapped);
           },
           onStateChange: (event) => {
             handlers.onStateChange?.(event.data, event.target);
@@ -175,10 +201,6 @@ export async function createYouTubePlayer(
           },
         },
       });
-      // If onReady never fires, surface after a while for callers that await.
-      window.setTimeout(() => {
-        // Player instance exists even before ready; resolve only via onReady.
-      }, 0);
       void player;
     } catch (error) {
       reject(error instanceof Error ? error : new Error(String(error)));

@@ -1877,17 +1877,26 @@ button {
 
 .watch-player-wrap {
   position: relative;
-  min-height: min(56vh, 28rem);
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: min(70vh, 36rem);
   background: #111;
   border-radius: 0.35rem;
   overflow: hidden;
 }
 
-.watch-player,
-.watch-player :global(iframe) {
-  display: block;
-  width: 100%;
-  height: min(56vh, 28rem);
+.watch-player {
+  position: absolute;
+  inset: 0;
+}
+
+.watch-player :global(iframe),
+.watch-player :global(> div) {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
   border: 0;
 }
 

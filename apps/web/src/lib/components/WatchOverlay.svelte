@@ -42,6 +42,7 @@
   let applyingRemote = false;
   let lastAppliedAt = 0;
   let destroyPlayer: (() => void) | null = null;
+  let disconnectResize: (() => void) | null = null;
 
   const peerLabel = $derived(
     users.length === 0 ? 'No one yet' : users.join(', ')
@@ -125,9 +126,11 @@
         return;
       }
       const hostEl = document.createElement('div');
+      hostEl.className = 'watch-player-host';
       mountEl.appendChild(hostEl);
       try {
         const created = await createYouTubePlayer(hostEl, videoId, {
+          sizeBox: mountEl,
           onStateChange: (state, target) => {
             if (cancelled) {
               return;
@@ -136,12 +139,15 @@
           },
         });
         if (cancelled) {
+          created.disconnectResize?.();
           created.destroy();
           return;
         }
         player = created;
+        disconnectResize = created.disconnectResize ?? null;
         destroyPlayer = () => {
           try {
+            created.disconnectResize?.();
             created.destroy();
           } catch {
             // ignore
@@ -157,6 +163,8 @@
     return () => {
       cancelled = true;
       window.removeEventListener('keydown', onKey);
+      disconnectResize?.();
+      disconnectResize = null;
       destroyPlayer?.();
       destroyPlayer = null;
       player = null;
@@ -164,6 +172,7 @@
   });
 
   onDestroy(() => {
+    disconnectResize?.();
     destroyPlayer?.();
   });
 
