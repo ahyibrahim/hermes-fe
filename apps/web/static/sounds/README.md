@@ -16,5 +16,12 @@ without changing callers (`playSfx('send')` → `send.ogg`).
 | share-join  | share-join.ogg    | select_002.ogg       |
 | share-end   | share-end.ogg     | close_001.ogg        |
 | share-leave | share-leave.ogg   | close_002.ogg        |
+| watch-start | watch-start.ogg   | toggle_002.ogg       |
+| watch-join  | watch-join.ogg    | switch_002.ogg       |
+| watch-end   | watch-end.ogg     | minimize_002.ogg     |
+| watch-leave | watch-leave.ogg   | maximize_002.ogg     |
+
+Watch cues reuse unmute/mute/leave/join masters (distinct from share’s
+select/close pair). Same mute gate as other `playSfx` cues.
 
 License text is in `LICENSE.txt`.

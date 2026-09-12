@@ -41,6 +41,35 @@ export type SessionEventMap = {
   memberAdded: { room: string; addedBy: string; users: string[]; members: string[] };
   memberRemoved: { room: string; removedBy: string; users: string[]; members: string[] };
   roomDeleted: { room: string };
+  watchStarted: {
+    room: string;
+    user: string;
+    provider: string;
+    videoId: string;
+    url: string;
+    host: string;
+    playing: boolean;
+    position: number;
+    rate: number;
+    updatedAt: number;
+    users: string[];
+  };
+  watchState: {
+    room: string;
+    provider: string;
+    videoId: string;
+    url: string;
+    host: string;
+    playing: boolean;
+    position: number;
+    rate: number;
+    updatedAt: number;
+    users: string[];
+  };
+  watchPeers: { room: string; users: string[]; host: string };
+  watchEnded: { room: string; user: string };
+  watchControlDenied: { room: string; action: string; reason?: string };
+  leftWatch: { room: string };
 };
 
 type SessionListener<K extends keyof SessionEventMap> = (payload: SessionEventMap[K]) => void;
@@ -518,6 +547,38 @@ export class SessionController {
     this.ws.send({ type: 'screen_share_stop', room });
   }
 
+  async startWatch(room: string, url: string): Promise<void> {
+    await this.ensureSocketForCall();
+    this.ws.send({ type: 'watch_start', room, url });
+  }
+
+  async joinWatch(room: string): Promise<void> {
+    await this.ensureSocketForCall();
+    this.ws.send({ type: 'watch_join', room });
+  }
+
+  async leaveWatch(room: string): Promise<void> {
+    if (!this.ws.isConnected()) {
+      return;
+    }
+    this.ws.send({ type: 'watch_leave', room });
+  }
+
+  watchControl(
+    room: string,
+    action: 'play' | 'pause' | 'seek' | 'rate' | 'end',
+    opts?: { position?: number; rate?: number }
+  ): void {
+    const payload: Record<string, unknown> = { type: 'watch_control', room, action };
+    if (opts?.position !== undefined) {
+      payload.position = opts.position;
+    }
+    if (opts?.rate !== undefined) {
+      payload.rate = opts.rate;
+    }
+    this.ws.send(payload);
+  }
+
   shutdown(): void {
     this.shuttingDown = true;
     if (this.reconnectTimer) {
@@ -610,6 +671,10 @@ export class SessionController {
       }
 
       if (this.handleCall(payload)) {
+        return;
+      }
+
+      if (this.handleWatch(payload)) {
         return;
       }
     });
@@ -765,6 +830,74 @@ export class SessionController {
         from: payload.from,
         candidate: payload.candidate ?? null,
       });
+      return true;
+    }
+
+    return false;
+  }
+
+  private handleWatch(payload: WsIncomingMessage): boolean {
+    if (payload.type === 'watch_started' && payload.room && typeof payload.videoId === 'string') {
+      this.emit('watchStarted', {
+        room: payload.room,
+        user: typeof payload.user === 'string' ? payload.user : '',
+        provider: typeof payload.provider === 'string' ? payload.provider : 'youtube',
+        videoId: payload.videoId,
+        url: typeof payload.url === 'string' ? payload.url : '',
+        host: typeof payload.host === 'string' ? payload.host : '',
+        playing: Boolean(payload.playing),
+        position: typeof payload.position === 'number' ? payload.position : 0,
+        rate: typeof payload.rate === 'number' ? payload.rate : 1,
+        updatedAt: typeof payload.updatedAt === 'number' ? payload.updatedAt : Date.now(),
+        users: Array.isArray(payload.users) ? payload.users : [],
+      });
+      return true;
+    }
+
+    if (payload.type === 'watch_state' && payload.room && typeof payload.videoId === 'string') {
+      this.emit('watchState', {
+        room: payload.room,
+        provider: typeof payload.provider === 'string' ? payload.provider : 'youtube',
+        videoId: payload.videoId,
+        url: typeof payload.url === 'string' ? payload.url : '',
+        host: typeof payload.host === 'string' ? payload.host : '',
+        playing: Boolean(payload.playing),
+        position: typeof payload.position === 'number' ? payload.position : 0,
+        rate: typeof payload.rate === 'number' ? payload.rate : 1,
+        updatedAt: typeof payload.updatedAt === 'number' ? payload.updatedAt : Date.now(),
+        users: Array.isArray(payload.users) ? payload.users : [],
+      });
+      return true;
+    }
+
+    if (payload.type === 'watch_peers' && payload.room && Array.isArray(payload.users)) {
+      this.emit('watchPeers', {
+        room: payload.room,
+        users: payload.users,
+        host: typeof payload.host === 'string' ? payload.host : '',
+      });
+      return true;
+    }
+
+    if (payload.type === 'watch_ended' && payload.room) {
+      this.emit('watchEnded', {
+        room: payload.room,
+        user: typeof payload.user === 'string' ? payload.user : '',
+      });
+      return true;
+    }
+
+    if (payload.type === 'watch_control_denied' && payload.room && typeof payload.action === 'string') {
+      this.emit('watchControlDenied', {
+        room: payload.room,
+        action: payload.action,
+        reason: typeof payload.reason === 'string' ? payload.reason : undefined,
+      });
+      return true;
+    }
+
+    if (payload.type === 'left_watch' && payload.room) {
+      this.emit('leftWatch', { room: payload.room });
       return true;
     }
 

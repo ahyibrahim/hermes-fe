@@ -15,6 +15,7 @@
     onUnsend,
     onResetPassword,
     onSetRole,
+    onWatchTogether,
   }: {
     messages: MessageRecord[];
     sender: PublicUser | undefined;
@@ -26,6 +27,7 @@
     onUnsend: (message: MessageRecord) => void;
     onResetPassword?: (user: PublicUser) => void;
     onSetRole?: (user: PublicUser, role: 'member' | 'admin') => void;
+    onWatchTogether?: (url: string) => void;
   } = $props();
 
   const first = $derived(messages[0]);
@@ -72,6 +74,7 @@
           canDelete={ownName === message.sender || isAdmin}
           {onDownload}
           {onUnsend}
+          {onWatchTogether}
         />
       {/each}
     </div>

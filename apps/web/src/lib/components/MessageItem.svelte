@@ -11,6 +11,7 @@
     canDelete = own,
     onDownload,
     onUnsend,
+    onWatchTogether,
   }: {
     message: MessageRecord;
     users: PublicUser[];
@@ -18,6 +19,7 @@
     canDelete?: boolean;
     onDownload: (message: MessageRecord) => void;
     onUnsend: (message: MessageRecord) => void;
+    onWatchTogether?: (url: string) => void;
   } = $props();
 
   const deleted = $derived(Boolean(message.deleted_at));
@@ -30,7 +32,7 @@
   {:else}
     {#if !hasFile}
       <div class="msg-item-body">
-        <MessageBody content={message.content} {users} />
+        <MessageBody content={message.content} {users} {onWatchTogether} />
       </div>
     {/if}
     {#if hasFile && message.file_id != null && message.file_id !== ''}

@@ -451,3 +451,52 @@ test('off-room member fan-out emits roomActivity and does not append to the open
     await backend.close();
   }
 });
+
+test('watch together start join control and leave', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  backend.seedUser('bob', 'secret');
+  const alice = createSession(backend.baseUrl);
+  const bob = createSession(backend.baseUrl);
+
+  const aliceStarted: string[] = [];
+  const bobStarted: string[] = [];
+  const bobStates: Array<{ videoId: string; playing: boolean }> = [];
+  const aliceLeft: string[] = [];
+  const bobEnded: string[] = [];
+  const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+
+  alice.on('watchStarted', ({ videoId }) => aliceStarted.push(videoId));
+  bob.on('watchStarted', ({ videoId }) => bobStarted.push(videoId));
+  bob.on('watchState', (state) => bobStates.push({ videoId: state.videoId, playing: state.playing }));
+  alice.on('leftWatch', ({ room }) => aliceLeft.push(room));
+  bob.on('watchEnded', ({ room }) => bobEnded.push(room));
+
+  try {
+    await alice.login('alice', 'secret');
+    await bob.login('bob', 'secret');
+    await alice.enterRoom('general');
+    await bob.enterRoom('general');
+    await waitFor(() => alice.getConnectionStatus() === 'open');
+    await waitFor(() => bob.getConnectionStatus() === 'open');
+
+    await alice.startWatch('general', url);
+    await waitFor(() => aliceStarted.includes('dQw4w9WgXcQ') && bobStarted.includes('dQw4w9WgXcQ'));
+
+    await bob.joinWatch('general');
+    await waitFor(() => bobStates.some((row) => row.videoId === 'dQw4w9WgXcQ'));
+
+    alice.watchControl('general', 'play', { position: 12 });
+    await waitFor(() => bobStates.some((row) => row.playing));
+
+    await alice.leaveWatch('general');
+    await waitFor(() => aliceLeft.includes('general'));
+
+    bob.watchControl('general', 'end');
+    await waitFor(() => bobEnded.includes('general'));
+  } finally {
+    alice.shutdown();
+    bob.shutdown();
+    await backend.close();
+  }
+});

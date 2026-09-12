@@ -11,6 +11,10 @@ export const SFX_NAMES = [
   'share-join',
   'share-end',
   'share-leave',
+  'watch-start',
+  'watch-join',
+  'watch-end',
+  'watch-leave',
 ] as const;
 export type SfxName = (typeof SFX_NAMES)[number];
 
@@ -25,6 +29,10 @@ const SRC: Record<SfxName, string> = {
   'share-join': '/sounds/share-join.ogg',
   'share-end': '/sounds/share-end.ogg',
   'share-leave': '/sounds/share-leave.ogg',
+  'watch-start': '/sounds/watch-start.ogg',
+  'watch-join': '/sounds/watch-join.ogg',
+  'watch-end': '/sounds/watch-end.ogg',
+  'watch-leave': '/sounds/watch-leave.ogg',
 };
 
 const cache = new Map<SfxName, HTMLAudioElement>();
