@@ -416,6 +416,31 @@ button {
   padding: 0;
 }
 
+.people-list .person-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+.people-list .person-row:hover {
+  background: var(--bg-hover);
+}
+
+.people-list .person-row.active {
+  background: var(--bg-active);
+  font-weight: 600;
+}
+
+.people-list .person-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .people-list .person-open,
 .people-list .self {
   display: flex;
@@ -428,36 +453,6 @@ button {
   border-radius: 0.35rem;
   padding: 0.4rem 0.55rem;
   color: var(--text);
-}
-
-.people-list .person-row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  width: 100%;
-  min-width: 0;
-  padding: 0.15rem 0.25rem 0.15rem 0.55rem;
-  border-radius: 0.35rem;
-}
-
-.people-list .person-row:hover {
-  background: var(--bg-hover);
-}
-
-.people-list .person-row.active {
-  background: var(--bg-active);
-  font-weight: 600;
-}
-
-.people-list .person-row > .person-open {
-  flex: 1;
-  min-width: 0;
-  padding: 0.25rem 0.3rem;
-  border-radius: 0.3rem;
-}
-
-.people-list .person-row > .person-open:hover {
-  background: transparent;
 }
 
 .people-list .person-open:hover {
@@ -1718,8 +1713,16 @@ button {
 .hover-card {
   position: absolute;
   z-index: 20;
-  top: calc(100% + 0.35rem);
+  top: 100%;
   left: 0;
+  /* Transparent bridge so the pointer can travel from the chip without closing. */
+  padding-top: 0.35rem;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.hover-card-inner {
   display: flex;
   gap: 0.65rem;
   min-width: 12rem;

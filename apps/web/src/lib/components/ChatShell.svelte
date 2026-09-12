@@ -1536,22 +1536,26 @@
                   <span class="you">you</span>
                 </span>
               {:else}
-                <div class="person-row" class:active={activeDm}>
+                <div
+                  class="person-row"
+                  class:active={activeDm}
+                  role="button"
+                  tabindex="0"
+                  onclick={() => void startDm(person)}
+                  onkeydown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      void startDm(person);
+                    }
+                  }}
+                >
                   <UserChip
                     user={person}
                     online={isOnline(person.username)}
                     onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
                     onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
                   />
-                  <button
-                    type="button"
-                    class="person-open"
-                    disabled={startingDm != null}
-                    onclick={() => startDm(person)}
-                  >
-                    <span class="role-label">{person.role ?? 'member'}</span>
-                    <span class="visually-hidden">Message {person.username}</span>
-                  </button>
+                  <span class="role-label">{person.role ?? 'member'}</span>
                 </div>
               {/if}
             </li>
