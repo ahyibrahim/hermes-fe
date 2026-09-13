@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PublicUser } from '@hermes/core';
-  import { parseMessageBody } from '@hermes/core';
+  import { isYouTubeUrl, parseMessageBody } from '@hermes/core';
   import HoverCard from '$lib/components/HoverCard.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import { onDestroy } from 'svelte';
@@ -8,9 +8,11 @@
   let {
     content,
     users,
+    onWatchTogether,
   }: {
     content: string;
     users: PublicUser[];
+    onWatchTogether?: (url: string) => void;
   } = $props();
 
   const parts = $derived(parseMessageBody(content, users.map((user) => user.username)));
@@ -27,13 +29,14 @@
     try {
       await navigator.clipboard.writeText(value);
       copiedIndex = index;
-      clearTimeout(copiedTimer);
-      copiedTimer = setTimeout(() => {
-        copiedIndex = null;
-      }, 1500);
     } catch {
       window.prompt('Copy code', value);
+      return;
     }
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedIndex = null;
+    }, 1500);
   }
 
   onDestroy(() => clearTimeout(copiedTimer));
@@ -45,6 +48,15 @@
       {part.value}
     {:else if part.type === 'url'}
       <a href={part.value} target="_blank" rel="noreferrer noopener">{part.value}</a>
+      {#if onWatchTogether && isYouTubeUrl(part.value)}
+        <button
+          type="button"
+          class="watch-together-cta"
+          onclick={() => onWatchTogether(part.value)}
+        >
+          Watch together
+        </button>
+      {/if}
     {:else if part.type === 'mention'}
       {#if lookup(part.username)}
         <HoverCard user={lookup(part.username) as PublicUser}>

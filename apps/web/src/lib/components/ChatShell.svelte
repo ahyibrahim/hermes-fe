@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ConnectionStatus, MessageRecord, PublicUser, RoomRecord } from '@hermes/core';
-  import { groupTranscript } from '@hermes/core';
+  import { groupTranscript, parseYouTubeVideoId } from '@hermes/core';
   import { goto } from '$app/navigation';
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
@@ -12,6 +12,7 @@
   import RoomMenu from '$lib/components/RoomMenu.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
+  import WatchOverlay from '$lib/components/WatchOverlay.svelte';
   import {
     clearDraft,
     formatUnread,
@@ -69,6 +70,21 @@
   let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
   let notifyMuted = $state(false);
   let callToast = $state<{ room: string; user: string } | null>(null);
+  let watch = $state<{
+    room: string;
+    videoId: string;
+    url: string;
+    host: string;
+    playing: boolean;
+    position: number;
+    rate: number;
+    updatedAt: number;
+    users: string[];
+    open: boolean;
+  } | null>(null);
+  let watchDenied = $state('');
+  let watchDeniedTimer: ReturnType<typeof setTimeout> | undefined;
+  let watchIntent = $state<'start' | 'join' | null>(null);
   let voice = $state<VoiceState>({
     room: null,
     joining: false,
@@ -127,6 +143,16 @@
     )
   );
   const roomMenuOpen = $derived(Boolean(currentRoomRecord() && !isDm(currentRoomRecord())));
+  const roomWatchActive = $derived(
+    Boolean(watch && currentRoom && watch.room === currentRoom && !watch.open)
+  );
+  const canControlWatch = $derived(
+    Boolean(
+      watch &&
+        username &&
+        (watch.host === username || me?.role === 'admin')
+    )
+  );
 
   function isDm(room: RoomRecord | undefined): boolean {
     if (!room) {
@@ -340,6 +366,135 @@
   function flash(message: string, isError = false): void {
     banner = message;
     bannerError = isError;
+  }
+
+  function flashWatchDenied(message: string): void {
+    watchDenied = message;
+    flash(message, true);
+    clearTimeout(watchDeniedTimer);
+    watchDeniedTimer = setTimeout(() => {
+      watchDenied = '';
+    }, 3200);
+  }
+
+  function applyWatchSnapshot(
+    payload: {
+      room: string;
+      videoId: string;
+      url: string;
+      host: string;
+      playing: boolean;
+      position: number;
+      rate: number;
+      updatedAt: number;
+      users: string[];
+    },
+    open?: boolean
+  ): void {
+    watch = {
+      room: payload.room,
+      videoId: payload.videoId,
+      url: payload.url,
+      host: payload.host,
+      playing: payload.playing,
+      position: payload.position,
+      rate: payload.rate,
+      updatedAt: payload.updatedAt,
+      users: [...payload.users],
+      open: open ?? watch?.open ?? false,
+    };
+  }
+
+  async function openWatchOverlay(room = currentRoom): Promise<void> {
+    if (!room || !watch || watch.room !== room) {
+      return;
+    }
+    unlockSfx();
+    watchIntent = 'join';
+    try {
+      await session.joinWatch(room);
+      if (watch && watch.room === room) {
+        watch = { ...watch, open: true };
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    }
+  }
+
+  async function leaveWatchSession(opts?: { end?: boolean }): Promise<void> {
+    const active = watch;
+    if (!active) {
+      return;
+    }
+    const room = active.room;
+    const wasOpen = active.open;
+    const inSession = Boolean(username && active.users.includes(username));
+    try {
+      if (opts?.end) {
+        session.watchControl(room, 'end');
+        return;
+      }
+      if (inSession || wasOpen) {
+        await session.leaveWatch(room);
+        if (wasOpen) {
+          playSfx('watch-leave');
+        }
+      }
+      if (watch?.room === room) {
+        if (inSession || wasOpen) {
+          watch = {
+            ...watch,
+            open: false,
+            users: watch.users.filter((name) => name !== username),
+          };
+        } else {
+          // Saw the session banner but never joined — dismiss local awareness.
+          watch = null;
+        }
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    }
+  }
+
+  async function onWatchTogether(url: string): Promise<void> {
+    if (!currentRoom) {
+      flash('Join a room first.', true);
+      return;
+    }
+    const videoId = parseYouTubeVideoId(url);
+    if (!videoId) {
+      flash('That is not a YouTube link.', true);
+      return;
+    }
+    unlockSfx();
+    const existing = watch && watch.room === currentRoom;
+    watchIntent = existing ? 'join' : 'start';
+    try {
+      if (existing) {
+        await session.joinWatch(currentRoom);
+      } else {
+        await session.startWatch(currentRoom, url);
+      }
+      if (!watch || watch.room !== currentRoom) {
+        watch = {
+          room: currentRoom,
+          videoId,
+          url,
+          host: username ?? '',
+          playing: false,
+          position: 0,
+          rate: 1,
+          updatedAt: Date.now(),
+          users: username ? [username] : [],
+          open: true,
+        };
+      } else {
+        watch = { ...watch, open: true, videoId, url };
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : String(error), true);
+    }
   }
 
   function atBottom(): boolean {
@@ -1085,6 +1240,73 @@
         }
         callToast = { room, user };
       }),
+      session.on('watchStarted', (payload) => {
+        const meName = session.getState().username;
+        const viewing = payload.room === session.getState().room;
+        const wasOpen = watch?.open && watch.room === payload.room;
+        applyWatchSnapshot(payload, wasOpen || watchIntent !== null);
+        if (watchIntent === 'start' && payload.host === meName) {
+          playSfx('watch-start');
+        } else if (viewing || watchIntent === 'join') {
+          // Someone else started while you view the room, or you joined via start-as-join.
+          if (payload.host !== meName || watchIntent === 'join') {
+            playSfx('watch-join');
+          }
+        }
+        if (watchIntent) {
+          watch = watch ? { ...watch, open: true } : watch;
+          watchIntent = null;
+        }
+      }),
+      session.on('watchState', (payload) => {
+        const meName = session.getState().username;
+        const wasOpen = watch?.open && watch.room === payload.room;
+        const intent = watchIntent;
+        const joining = intent === 'join' || intent === 'start';
+        applyWatchSnapshot(payload, wasOpen || joining);
+        if (intent === 'start' && payload.host === meName) {
+          playSfx('watch-start');
+          watchIntent = null;
+          if (watch) {
+            watch = { ...watch, open: true };
+          }
+        } else if (joining) {
+          // Explicit join, or start-as-join when a session already existed.
+          playSfx('watch-join');
+          watchIntent = null;
+          if (watch) {
+            watch = { ...watch, open: true };
+          }
+        }
+      }),
+      session.on('watchPeers', ({ room, users: peerUsers, host }) => {
+        if (!watch || watch.room !== room) {
+          return;
+        }
+        watch = { ...watch, users: [...peerUsers], host };
+      }),
+      session.on('watchEnded', ({ room, user: endedBy }) => {
+        const active = watch;
+        if (!active || active.room !== room) {
+          return;
+        }
+        const wasIn = active.open || active.users.includes(username ?? '');
+        if (wasIn) {
+          playSfx('watch-end');
+        }
+        void endedBy;
+        watch = null;
+        watchIntent = null;
+      }),
+      session.on('watchControlDenied', ({ action, reason }) => {
+        flashWatchDenied(reason ? `${action}: ${reason}` : `Cannot ${action}`);
+      }),
+      session.on('leftWatch', ({ room }) => {
+        if (watch?.room === room) {
+          watch = { ...watch, open: false };
+        }
+        watchIntent = null;
+      }),
       session.on('presence', () => {
         const state = session.getState();
         users = [...state.roomUsers].sort((a, b) => a.localeCompare(b));
@@ -1126,6 +1348,7 @@
       void mesh?.destroy();
       mesh = undefined;
       document.removeEventListener('visibilitychange', onVisibility);
+      clearTimeout(watchDeniedTimer);
       for (const off of offs) {
         off();
       }
@@ -1412,6 +1635,16 @@
       />
     {/if}
 
+    {#if roomWatchActive && watch}
+      <div class="watch-banner">
+        <span>Watching together</span>
+        <span class="watch-banner-actions">
+          <button type="button" class="watch-btn" onclick={() => void openWatchOverlay()}>Open</button>
+          <button type="button" class="watch-btn" onclick={() => void leaveWatchSession()}>Leave</button>
+        </span>
+      </div>
+    {/if}
+
     <div class="messages" bind:this={scroller} onscroll={onTranscriptScroll}>
       <div class="messages-body">
         {#if banner}
@@ -1435,6 +1668,7 @@
                 onUnsend={unsend}
                 onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
                 onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
+                onWatchTogether={(url) => void onWatchTogether(url)}
               />
             {/if}
           {/each}
@@ -1581,4 +1815,26 @@
       <button type="button" class="secondary" onclick={() => (callToast = null)}>Dismiss</button>
     </div>
   </div>
+{/if}
+
+{#if watch?.open}
+  <WatchOverlay
+    videoId={watch.videoId}
+    host={watch.host}
+    users={watch.users}
+    playing={watch.playing}
+    position={watch.position}
+    rate={watch.rate}
+    updatedAt={watch.updatedAt}
+    canControl={canControlWatch}
+    deniedHint={watchDenied}
+    onLeave={() => void leaveWatchSession()}
+    onEnd={() => void leaveWatchSession({ end: true })}
+    onControl={(action, opts) => {
+      if (!watch || !canControlWatch) {
+        return;
+      }
+      session.watchControl(watch.room, action, opts);
+    }}
+  />
 {/if}

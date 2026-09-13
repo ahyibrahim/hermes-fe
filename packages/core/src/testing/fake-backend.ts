@@ -3,6 +3,7 @@ import { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { isUserColor, nextUserColor } from '../colors.js';
 import { MessageRecord, PublicUser, RoomRecord } from '../types.js';
+import { parseYouTubeVideoId } from '../youtube.js';
 
 export interface FakeBackend {
   baseUrl: string;
@@ -38,6 +39,18 @@ interface StoredFile {
   name: string;
   data: Buffer;
   mime?: string;
+}
+
+interface WatchSession {
+  host: string;
+  url: string;
+  provider: string;
+  videoId: string;
+  playing: boolean;
+  position: number;
+  rate: number;
+  updatedAt: number;
+  users: Set<string>;
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
@@ -124,6 +137,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   const clients = new Set<Client>();
   const callMembers = new Map<string, Set<string>>();
   const callSharing = new Map<string, string>();
+  const watchSessions = new Map<string, WatchSession>();
   const reads = new Map<string, number>();
   const hidden = new Set<string>();
   const resetTokens = new Map<string, string>();
@@ -315,6 +329,72 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   const leaveAllCalls = (username: string): void => {
     for (const room of [...callMembers.keys()]) {
       removeFromCall(room, username, false);
+    }
+  };
+
+  const watchRoster = (room: string): string[] =>
+    [...(watchSessions.get(room)?.users ?? [])].sort((a, b) => a.localeCompare(b));
+
+  const watchSnapshot = (room: string, session: WatchSession) => ({
+    room,
+    provider: session.provider,
+    videoId: session.videoId,
+    url: session.url,
+    host: session.host,
+    playing: session.playing,
+    position: session.position,
+    rate: session.rate,
+    updatedAt: session.updatedAt,
+    users: watchRoster(room),
+  });
+
+  const broadcastWatch = (room: string, payload: unknown, exceptUser?: string): void => {
+    const session = watchSessions.get(room);
+    if (!session) {
+      return;
+    }
+    for (const name of session.users) {
+      if (exceptUser && name === exceptUser) {
+        continue;
+      }
+      sendToUser(name, payload);
+    }
+  };
+
+  const broadcastWatchToRoom = (room: string, payload: unknown, exceptUser?: string): void => {
+    broadcastToMembers(room, payload, exceptUser);
+  };
+
+  const canControlWatch = (username: string, session: WatchSession): boolean => {
+    if (session.host === username) {
+      return true;
+    }
+    return users.get(username)?.role === 'admin';
+  };
+
+  const removeFromWatch = (room: string, username: string, notifyLeaver: boolean): void => {
+    const session = watchSessions.get(room);
+    if (!session?.users.has(username)) {
+      return;
+    }
+    session.users.delete(username);
+    if (session.users.size === 0) {
+      watchSessions.delete(room);
+      broadcastWatchToRoom(room, { type: 'watch_ended', room, user: username });
+    } else {
+      if (session.host === username) {
+        session.host = [...session.users][0] as string;
+      }
+      broadcastWatch(room, { type: 'watch_peers', room, users: watchRoster(room), host: session.host });
+    }
+    if (notifyLeaver) {
+      sendToUser(username, { type: 'left_watch', room });
+    }
+  };
+
+  const leaveAllWatches = (username: string): void => {
+    for (const room of [...watchSessions.keys()]) {
+      removeFromWatch(room, username, false);
     }
   };
 
@@ -1213,6 +1293,10 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           to?: string;
           sdp?: unknown;
           candidate?: unknown;
+          url?: string;
+          action?: string;
+          position?: number;
+          rate?: number;
         };
         try {
           payload = JSON.parse(raw.toString()) as typeof payload;
@@ -1347,6 +1431,145 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
 
+        if (payload.type === 'watch_start' || payload.type === 'watch_join') {
+          const roomSlug = payload.room?.trim();
+          if (!roomSlug) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+            return;
+          }
+          const room = rooms.get(roomSlug);
+          if (!room?.members.includes(user)) {
+            ws.send(JSON.stringify({ type: 'error', content: 'not a member of that room' }));
+            return;
+          }
+
+          let session = watchSessions.get(roomSlug);
+          if (!session) {
+            if (payload.type === 'watch_join') {
+              ws.send(JSON.stringify({ type: 'error', content: 'no watch session' }));
+              return;
+            }
+            const url = typeof payload.url === 'string' ? payload.url.trim() : '';
+            const videoId = parseYouTubeVideoId(url);
+            if (!videoId) {
+              ws.send(JSON.stringify({ type: 'error', content: 'invalid YouTube url' }));
+              return;
+            }
+            session = {
+              host: user,
+              url,
+              provider: 'youtube',
+              videoId,
+              playing: false,
+              position: 0,
+              rate: 1,
+              updatedAt: Date.now(),
+              users: new Set([user]),
+            };
+            watchSessions.set(roomSlug, session);
+            broadcastWatchToRoom(roomSlug, {
+              type: 'watch_started',
+              user,
+              ...watchSnapshot(roomSlug, session),
+            });
+            return;
+          }
+
+          const already = session.users.has(user);
+          session.users.add(user);
+          const snap = watchSnapshot(roomSlug, session);
+          ws.send(JSON.stringify({ type: 'watch_state', ...snap }));
+          if (!already) {
+            broadcastWatch(roomSlug, {
+              type: 'watch_peers',
+              room: roomSlug,
+              users: snap.users,
+              host: session.host,
+            }, user);
+          }
+          return;
+        }
+
+        if (payload.type === 'watch_leave') {
+          const roomSlug = payload.room?.trim();
+          if (!roomSlug) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+            return;
+          }
+          removeFromWatch(roomSlug, user, true);
+          return;
+        }
+
+        if (payload.type === 'watch_control') {
+          const roomSlug = payload.room?.trim();
+          const action = typeof payload.action === 'string' ? payload.action : '';
+          if (!roomSlug || !action) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room and action are required' }));
+            return;
+          }
+          const session = watchSessions.get(roomSlug);
+          if (!session?.users.has(user)) {
+            ws.send(
+              JSON.stringify({
+                type: 'watch_control_denied',
+                room: roomSlug,
+                action,
+                reason: 'not in watch session',
+              })
+            );
+            return;
+          }
+          if (!canControlWatch(user, session)) {
+            ws.send(
+              JSON.stringify({
+                type: 'watch_control_denied',
+                room: roomSlug,
+                action,
+                reason: 'not host or admin',
+              })
+            );
+            return;
+          }
+
+          if (action === 'end') {
+            watchSessions.delete(roomSlug);
+            broadcastWatchToRoom(roomSlug, { type: 'watch_ended', room: roomSlug, user });
+            return;
+          }
+
+          if (action === 'play') {
+            session.playing = true;
+          } else if (action === 'pause') {
+            session.playing = false;
+          } else if (action === 'seek' && typeof payload.position === 'number') {
+            session.position = payload.position;
+          } else if (action === 'rate' && typeof payload.rate === 'number') {
+            session.rate = payload.rate;
+          } else {
+            ws.send(
+              JSON.stringify({
+                type: 'watch_control_denied',
+                room: roomSlug,
+                action,
+                reason: 'unknown action',
+              })
+            );
+            return;
+          }
+
+          if (typeof payload.position === 'number' && action !== 'seek') {
+            session.position = payload.position;
+          }
+          if (action === 'play' || action === 'pause') {
+            if (typeof payload.position === 'number') {
+              session.position = payload.position;
+            }
+          }
+          session.updatedAt = Date.now();
+          broadcastWatch(roomSlug, { type: 'watch_state', ...watchSnapshot(roomSlug, session) });
+          return;
+        }
+
         if (payload.type === 'call_offer' || payload.type === 'call_answer' || payload.type === 'ice_candidate') {
           const roomSlug = payload.room?.trim() ?? '';
           const to = payload.to?.trim().toLowerCase() ?? '';
@@ -1381,6 +1604,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         }
         if (remainingSockets(user) === 0) {
           leaveAllCalls(user);
+          leaveAllWatches(user);
         }
       });
     });

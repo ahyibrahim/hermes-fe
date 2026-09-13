@@ -19,6 +19,16 @@ export interface WsIncomingMessage {
   to?: string;
   sdp?: SessionDescriptionPayload;
   candidate?: IceCandidatePayload | null;
+  provider?: string;
+  videoId?: string;
+  url?: string;
+  host?: string;
+  playing?: boolean;
+  position?: number;
+  rate?: number;
+  updatedAt?: number;
+  action?: string;
+  reason?: string;
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
