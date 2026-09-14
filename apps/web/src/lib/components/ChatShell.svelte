@@ -42,6 +42,10 @@
   let banner = $state('');
   let bannerError = $state(false);
   let draft = $state('');
+  let typingUsers = $state<string[]>([]);
+  let typingSent = false;
+  let lastTypingSentAt = 0;
+  let typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
   let newRoomName = $state('');
   let pendingFile = $state<File | null>(null);
   let sending = $state(false);
@@ -565,11 +569,57 @@
     composer.style.height = `${Math.min(composer.scrollHeight, max)}px`;
   }
 
+  function stopLocalTyping(): void {
+    if (typingIdleTimer) {
+      clearTimeout(typingIdleTimer);
+      typingIdleTimer = null;
+    }
+    if (typingSent && currentRoom) {
+      session.setTyping(currentRoom, false);
+    }
+    typingSent = false;
+    lastTypingSentAt = 0;
+  }
+
+  function touchLocalTyping(): void {
+    if (!currentRoom) {
+      return;
+    }
+    if (!draft.trim()) {
+      stopLocalTyping();
+      return;
+    }
+    const now = Date.now();
+    if (!typingSent || now - lastTypingSentAt > 2500) {
+      session.setTyping(currentRoom, true);
+      typingSent = true;
+      lastTypingSentAt = now;
+    }
+    if (typingIdleTimer) {
+      clearTimeout(typingIdleTimer);
+    }
+    typingIdleTimer = setTimeout(() => stopLocalTyping(), 2500);
+  }
+
+  function typingLabel(names: string[]): string {
+    if (names.length === 0) {
+      return '';
+    }
+    if (names.length === 1) {
+      return `${names[0]} is typing`;
+    }
+    if (names.length === 2) {
+      return `${names[0]} and ${names[1]} are typing`;
+    }
+    return `${names[0]} and ${names.length - 1} others are typing`;
+  }
+
   function onDraftInput(): void {
     if (currentRoom) {
       saveDraft(currentRoom, draft);
     }
     growComposer();
+    touchLocalTyping();
   }
 
   async function selectRoom(slug: string): Promise<void> {
@@ -581,6 +631,8 @@
     showJump = false;
     if (currentRoom && currentRoom !== slug) {
       saveDraft(currentRoom, draft);
+      stopLocalTyping();
+      typingUsers = [];
     }
     if (slug !== currentRoom) {
       closeRoomMenu();
@@ -939,6 +991,7 @@
       return;
     }
 
+    stopLocalTyping();
     sending = true;
     try {
       if (file) {
@@ -1124,6 +1177,9 @@
       }),
       session.on('message', (message) => {
         syncFromSession();
+        if (message.sender && (!message.room || message.room === currentRoom)) {
+          typingUsers = typingUsers.filter((name) => name !== message.sender);
+        }
         if (message.room) {
           if (shouldCountUnread(message.room, message)) {
             bumpUnread(message.room);
@@ -1312,6 +1368,18 @@
         users = [...state.roomUsers].sort((a, b) => a.localeCompare(b));
         void loadDirectory();
       }),
+      session.on('typing', ({ room, user, active }) => {
+        if (room !== currentRoom || user === username) {
+          return;
+        }
+        if (active) {
+          if (!typingUsers.includes(user)) {
+            typingUsers = [...typingUsers, user].sort((a, b) => a.localeCompare(b));
+          }
+        } else {
+          typingUsers = typingUsers.filter((name) => name !== user);
+        }
+      }),
       session.on('status', ({ status: next }) => {
         status = next;
       }),
@@ -1349,6 +1417,7 @@
       mesh = undefined;
       document.removeEventListener('visibilitychange', onVisibility);
       clearTimeout(watchDeniedTimer);
+      stopLocalTyping();
       for (const off of offs) {
         off();
       }
@@ -1688,6 +1757,13 @@
       </div>
     {/if}
 
+    {#if typingUsers.length > 0}
+      <div class="typing-indicator" aria-live="polite">
+        <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>{typingLabel(typingUsers)}</span>
+      </div>
+    {/if}
+
     <form
       class="composer"
       onsubmit={(event) => {
@@ -1722,6 +1798,7 @@
         oninput={onDraftInput}
         onkeydown={onComposerKey}
         onpaste={onComposerPaste}
+        onblur={stopLocalTyping}
       ></textarea>
       <IconButton
         type="submit"

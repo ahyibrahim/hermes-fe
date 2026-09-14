@@ -70,6 +70,7 @@ export type SessionEventMap = {
   watchEnded: { room: string; user: string };
   watchControlDenied: { room: string; action: string; reason?: string };
   leftWatch: { room: string };
+  typing: { room: string; user: string; active: boolean };
 };
 
 type SessionListener<K extends keyof SessionEventMap> = (payload: SessionEventMap[K]) => void;
@@ -579,6 +580,13 @@ export class SessionController {
     this.ws.send(payload);
   }
 
+  setTyping(room: string, active: boolean): void {
+    if (!this.ws.isConnected()) {
+      return;
+    }
+    this.ws.send({ type: 'typing', room, active });
+  }
+
   shutdown(): void {
     this.shuttingDown = true;
     if (this.reconnectTimer) {
@@ -676,6 +684,14 @@ export class SessionController {
 
       if (this.handleWatch(payload)) {
         return;
+      }
+
+      if (payload.type === 'typing' && typeof payload.room === 'string' && typeof payload.user === 'string') {
+        this.emit('typing', {
+          room: payload.room,
+          user: payload.user,
+          active: payload.active === true,
+        });
       }
     });
 
