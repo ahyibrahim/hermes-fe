@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import IconButton from '$lib/components/IconButton.svelte';
+  import IconGlyph from '$lib/components/IconGlyph.svelte';
   import {
     applyWatchState,
     createYouTubePlayer,
@@ -201,9 +203,13 @@
       </div>
       <div class="watch-overlay-actions">
         {#if canControl}
-          <button type="button" class="watch-btn danger" onclick={onEnd}>End</button>
+          <IconButton label="End watch" title="End watch" tone="danger" onclick={onEnd}>
+            <IconGlyph name="close" size={16} />
+          </IconButton>
         {/if}
-        <button type="button" class="watch-btn" onclick={onLeave}>Leave</button>
+        <IconButton label="Leave watch" title="Leave watch" onclick={onLeave}>
+          <IconGlyph name="leave" size={16} />
+        </IconButton>
       </div>
     </header>
 

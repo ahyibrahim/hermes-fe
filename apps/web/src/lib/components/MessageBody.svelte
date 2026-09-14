@@ -3,6 +3,7 @@
   import { isYouTubeUrl, parseMessageBody } from '@hermes/core';
   import HoverCard from '$lib/components/HoverCard.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
+  import IconGlyph from '$lib/components/IconGlyph.svelte';
   import { onDestroy } from 'svelte';
 
   let {
@@ -47,15 +48,21 @@
     {#if part.type === 'text'}
       {part.value}
     {:else if part.type === 'url'}
-      <a href={part.value} target="_blank" rel="noreferrer noopener">{part.value}</a>
       {#if onWatchTogether && isYouTubeUrl(part.value)}
-        <button
-          type="button"
-          class="watch-together-cta"
-          onclick={() => onWatchTogether(part.value)}
-        >
-          Watch together
-        </button>
+        <span class="watch-link-block">
+          <a href={part.value} target="_blank" rel="noreferrer noopener">{part.value}</a>
+          <button
+            type="button"
+            class="watch-together-cta"
+            title="Watch together"
+            onclick={() => onWatchTogether(part.value)}
+          >
+            <IconGlyph name="watch" size={13} />
+            <span>Watch together</span>
+          </button>
+        </span>
+      {:else}
+        <a href={part.value} target="_blank" rel="noreferrer noopener">{part.value}</a>
       {/if}
     {:else if part.type === 'mention'}
       {#if lookup(part.username)}
