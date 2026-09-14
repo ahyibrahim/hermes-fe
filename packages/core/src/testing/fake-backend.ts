@@ -138,6 +138,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   const callMembers = new Map<string, Set<string>>();
   const callSharing = new Map<string, string>();
   const watchSessions = new Map<string, WatchSession>();
+  const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const reads = new Map<string, number>();
   const hidden = new Set<string>();
   const resetTokens = new Map<string, string>();
@@ -1297,6 +1298,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           action?: string;
           position?: number;
           rate?: number;
+          active?: boolean;
         };
         try {
           payload = JSON.parse(raw.toString()) as typeof payload;
@@ -1593,6 +1595,41 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
 
+        if (payload.type === 'typing') {
+          const roomSlug = payload.room?.trim() ?? '';
+          if (!roomSlug) {
+            ws.send(JSON.stringify({ type: 'error', content: 'room is required' }));
+            return;
+          }
+          const room = rooms.get(roomSlug);
+          if (!room?.members.includes(user)) {
+            ws.send(JSON.stringify({ type: 'error', content: 'not a member of that room' }));
+            return;
+          }
+          const active = payload.active === true;
+          const key = `${roomSlug}\0${user}`;
+          const existing = typingTimers.get(key);
+          if (existing) {
+            clearTimeout(existing);
+            typingTimers.delete(key);
+          }
+          if (active) {
+            typingTimers.set(
+              key,
+              setTimeout(() => {
+                typingTimers.delete(key);
+                broadcastToMembers(roomSlug, { type: 'typing', room: roomSlug, user, active: false }, user);
+              }, 5_000)
+            );
+            if (!existing) {
+              broadcastToMembers(roomSlug, { type: 'typing', room: roomSlug, user, active: true }, user);
+            }
+          } else if (existing) {
+            broadcastToMembers(roomSlug, { type: 'typing', room: roomSlug, user, active: false }, user);
+          }
+          return;
+        }
+
         ws.send(JSON.stringify({ type: 'error', content: 'unknown message type' }));
       });
 
@@ -1605,6 +1642,18 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         if (remainingSockets(user) === 0) {
           leaveAllCalls(user);
           leaveAllWatches(user);
+          for (const key of [...typingTimers.keys()]) {
+            if (!key.endsWith(`\0${user}`)) {
+              continue;
+            }
+            const roomSlug = key.slice(0, -(user.length + 1));
+            const timer = typingTimers.get(key);
+            if (timer) {
+              clearTimeout(timer);
+            }
+            typingTimers.delete(key);
+            broadcastToMembers(roomSlug, { type: 'typing', room: roomSlug, user, active: false }, user);
+          }
         }
       });
     });

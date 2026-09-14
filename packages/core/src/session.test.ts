@@ -500,3 +500,36 @@ test('watch together start join control and leave', async () => {
     await backend.close();
   }
 });
+
+test('typing indicators fan out and clear on stop', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  backend.seedUser('bob', 'secret');
+  const alice = createSession(backend.baseUrl);
+  const bob = createSession(backend.baseUrl);
+  const bobEvents: Array<{ user: string; active: boolean }> = [];
+  bob.on('typing', (payload) => {
+    if (payload.room === 'general') {
+      bobEvents.push({ user: payload.user, active: payload.active });
+    }
+  });
+
+  try {
+    await alice.login('alice', 'secret');
+    await bob.login('bob', 'secret');
+    await alice.enterRoom('general');
+    await bob.enterRoom('general');
+    await waitFor(() => alice.getConnectionStatus() === 'open');
+    await waitFor(() => bob.getConnectionStatus() === 'open');
+
+    alice.setTyping('general', true);
+    await waitFor(() => bobEvents.some((row) => row.user === 'alice' && row.active));
+
+    alice.setTyping('general', false);
+    await waitFor(() => bobEvents.some((row) => row.user === 'alice' && !row.active));
+  } finally {
+    alice.shutdown();
+    bob.shutdown();
+    await backend.close();
+  }
+});

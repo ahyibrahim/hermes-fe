@@ -29,6 +29,7 @@ export interface WsIncomingMessage {
   updatedAt?: number;
   action?: string;
   reason?: string;
+  active?: boolean;
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
