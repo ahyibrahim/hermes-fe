@@ -1753,30 +1753,50 @@ button {
   overflow-wrap: anywhere;
 }
 
+.watch-link-block {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  max-width: 100%;
+  vertical-align: top;
+}
+
+.watch-link-block > a {
+  overflow-wrap: anywhere;
+}
+
 .watch-together-cta {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  margin-left: 0.35rem;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.28rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--text-muted));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.85em;
-  text-decoration: underline;
-  text-underline-offset: 0.12em;
+  font-size: 0.8em;
+  line-height: 1.2;
+  white-space: nowrap;
   cursor: pointer;
-  vertical-align: baseline;
 }
 
 .watch-together-cta:hover {
   color: var(--text);
+  border-color: color-mix(in srgb, var(--border) 55%, var(--text));
+  background: var(--bg-hover);
+}
+
+.watch-together-cta:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, var(--text)) 45%, transparent);
+  outline-offset: 1px;
 }
 
 .watch-together-cta svg {
   flex-shrink: 0;
-  text-decoration: none;
+  display: block;
 }
 
 .watch-banner {

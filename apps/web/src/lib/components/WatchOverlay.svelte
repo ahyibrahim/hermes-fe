@@ -204,7 +204,7 @@
       <div class="watch-overlay-actions">
         {#if canControl}
           <IconButton label="End watch" title="End watch" tone="danger" onclick={onEnd}>
-            <IconGlyph name="hangup" size={16} />
+            <IconGlyph name="close" size={16} />
           </IconButton>
         {/if}
         <IconButton label="Leave watch" title="Leave watch" onclick={onLeave}>
