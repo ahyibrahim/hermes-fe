@@ -3,6 +3,7 @@
   import { isYouTubeUrl, parseMessageBody } from '@hermes/core';
   import HoverCard from '$lib/components/HoverCard.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
+  import IconGlyph from '$lib/components/IconGlyph.svelte';
   import { onDestroy } from 'svelte';
 
   let {
@@ -52,9 +53,12 @@
         <button
           type="button"
           class="watch-together-cta"
+          aria-label="Watch together"
+          title="Watch together"
           onclick={() => onWatchTogether(part.value)}
         >
-          Watch together
+          <IconGlyph name="watch" size={12} />
+          <span>Watch together</span>
         </button>
       {/if}
     {:else if part.type === 'mention'}

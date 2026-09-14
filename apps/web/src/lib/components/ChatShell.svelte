@@ -1640,7 +1640,9 @@
         <span>Watching together</span>
         <span class="watch-banner-actions">
           <button type="button" class="watch-btn" onclick={() => void openWatchOverlay()}>Open</button>
-          <button type="button" class="watch-btn" onclick={() => void leaveWatchSession()}>Leave</button>
+          <IconButton label="Leave watch" title="Leave watch" onclick={() => void leaveWatchSession()}>
+            <IconGlyph name="leave" size={14} />
+          </IconButton>
         </span>
       </div>
     {/if}

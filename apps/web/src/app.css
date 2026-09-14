@@ -1754,7 +1754,9 @@ button {
 }
 
 .watch-together-cta {
-  display: inline;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   margin-left: 0.35rem;
   padding: 0;
   border: 0;
@@ -1765,10 +1767,16 @@ button {
   text-decoration: underline;
   text-underline-offset: 0.12em;
   cursor: pointer;
+  vertical-align: baseline;
 }
 
 .watch-together-cta:hover {
   color: var(--text);
+}
+
+.watch-together-cta svg {
+  flex-shrink: 0;
+  text-decoration: none;
 }
 
 .watch-banner {
@@ -1786,7 +1794,13 @@ button {
 
 .watch-banner-actions {
   display: flex;
+  align-items: center;
   gap: 0.4rem;
+}
+
+.watch-banner-actions .icon-btn {
+  width: 1.75rem;
+  height: 1.75rem;
 }
 
 .watch-btn {
@@ -1862,7 +1876,13 @@ button {
 .watch-overlay-actions {
   display: flex;
   flex-shrink: 0;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.watch-overlay-actions .icon-btn {
+  width: 2rem;
+  height: 2rem;
 }
 
 .watch-overlay-hint {

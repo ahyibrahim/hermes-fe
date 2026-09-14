@@ -19,6 +19,7 @@
       | 'person-plus'
       | 'profile'
       | 'leave'
+      | 'watch'
       | 'share'
       | 'share-off'
       | 'cog'
@@ -214,6 +215,16 @@
       stroke-linecap="round"
       stroke-linejoin="round"
     />
+  {:else if name === 'watch'}
+    <rect x="2.2" y="3.4" width="11.6" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4" />
+    <path
+      d="M6.4 6.2 10 7.4 6.4 8.6Z"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.3"
+      stroke-linejoin="round"
+    />
+    <path d="M5.2 13h5.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
   {:else if name === 'chevron-left'}
     <path
       d="M10.2 3.2 5.4 8l4.8 4.8"
