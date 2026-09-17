@@ -2,6 +2,7 @@
   import type { LinkPreview } from '@hermes/core';
   import { parseYouTubeVideoId } from '@hermes/core';
   import { getSession } from '$lib/client';
+  import { soft } from '$lib/motion';
   import { untrack } from 'svelte';
 
   let {
@@ -18,7 +19,9 @@
   );
 
   let preview = $state<LinkPreview | null>(null);
+  let metaLoading = $state(true);
   let thumbFailed = $state(false);
+  let thumbReady = $state(false);
 
   function formatDuration(seconds: number): string {
     const total = Math.max(0, Math.floor(seconds));
@@ -48,7 +51,9 @@
     const target = url;
     untrack(() => {
       preview = null;
+      metaLoading = true;
       thumbFailed = false;
+      thumbReady = false;
     });
     let cancelled = false;
     void getSession()
@@ -56,10 +61,13 @@
       .then((result) => {
         if (!cancelled) {
           preview = result;
+          metaLoading = false;
         }
       })
       .catch(() => {
-        // Thumbnail still shows without metadata.
+        if (!cancelled) {
+          metaLoading = false;
+        }
       });
     return () => {
       cancelled = true;
@@ -76,39 +84,57 @@
         title="Watch together"
         onclick={startWatch}
       >
+        <span class="yt-preview-skel settle-shimmer" class:hidden={thumbReady}></span>
         <img
           class="yt-preview-thumb"
+          class:settled={thumbReady}
           src={thumbUrl}
           alt=""
           loading="lazy"
+          onload={() => (thumbReady = true)}
           onerror={() => (thumbFailed = true)}
         />
         {#if durationLabel}
-          <span class="yt-preview-duration">{durationLabel}</span>
+          <span class="yt-preview-duration" transition:soft>{durationLabel}</span>
         {/if}
       </button>
     {:else}
       <a class="yt-preview-thumb-wrap" href={url} target="_blank" rel="noreferrer noopener">
+        <span class="yt-preview-skel settle-shimmer" class:hidden={thumbReady}></span>
         <img
           class="yt-preview-thumb"
+          class:settled={thumbReady}
           src={thumbUrl}
           alt=""
           loading="lazy"
+          onload={() => (thumbReady = true)}
           onerror={() => (thumbFailed = true)}
         />
         {#if durationLabel}
-          <span class="yt-preview-duration">{durationLabel}</span>
+          <span class="yt-preview-duration" transition:soft>{durationLabel}</span>
         {/if}
       </a>
     {/if}
     <span class="yt-preview-meta">
       <span class="yt-preview-site">YouTube</span>
       {#if onWatchTogether}
-        <button type="button" class="yt-preview-title" title="Watch together" onclick={startWatch}>
+        <button
+          type="button"
+          class="yt-preview-title"
+          class:yt-preview-title-pending={metaLoading && !title}
+          title="Watch together"
+          onclick={startWatch}
+        >
           {title ?? 'YouTube video'}
         </button>
       {:else}
-        <a class="yt-preview-title" href={url} target="_blank" rel="noreferrer noopener">
+        <a
+          class="yt-preview-title"
+          class:yt-preview-title-pending={metaLoading && !title}
+          href={url}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
           {title ?? 'YouTube video'}
         </a>
       {/if}
@@ -119,12 +145,15 @@
             href={authorUrl}
             target="_blank"
             rel="noreferrer noopener"
+            transition:soft
           >
             {author}
           </a>
         {:else}
-          <span class="yt-preview-author">{author}</span>
+          <span class="yt-preview-author" transition:soft>{author}</span>
         {/if}
+      {:else if metaLoading}
+        <span class="settle-line settle-line-sm settle-shimmer" aria-hidden="true"></span>
       {/if}
     </span>
   </div>

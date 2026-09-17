@@ -3,7 +3,7 @@
   import { getSession } from '$lib/client';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
-  import { backdrop } from '$lib/motion';
+  import { backdrop, soft } from '$lib/motion';
 
   let {
     fileId,
@@ -16,6 +16,9 @@
   } = $props();
 
   let previewUrl = $state<string | null>(null);
+  let loading = $state(true);
+  let failed = $state(false);
+  let imageReady = $state(false);
   let expanded = $state(false);
 
   function imageMime(mime: string, filename: string): string | null {
@@ -54,6 +57,9 @@
     const filename = name;
     untrack(() => {
       previewUrl = null;
+      loading = true;
+      failed = false;
+      imageReady = false;
       expanded = false;
     });
     let objectUrl: string | null = null;
@@ -62,16 +68,25 @@
       .fetchFile(id)
       .then(({ bytes, mime }) => {
         const type = imageMime(mime, filename);
-        if (cancelled || !type) {
+        if (cancelled) {
+          return;
+        }
+        if (!type) {
+          loading = false;
+          failed = true;
           return;
         }
         const copy = new Uint8Array(bytes.byteLength);
         copy.set(bytes);
         objectUrl = URL.createObjectURL(new Blob([copy], { type }));
         previewUrl = objectUrl;
+        loading = false;
       })
       .catch(() => {
-        // Keep the Download control when the preview cannot load.
+        if (!cancelled) {
+          loading = false;
+          failed = true;
+        }
       });
     return () => {
       cancelled = true;
@@ -82,9 +97,25 @@
   });
 </script>
 
-{#if previewUrl}
-  <button type="button" class="img-preview-frame" onclick={() => (expanded = true)}>
-    <img class="img-preview" src={previewUrl} alt={name} />
+{#if loading}
+  <div class="img-preview-skel settle-shimmer" aria-hidden="true"></div>
+{:else if previewUrl}
+  <button
+    type="button"
+    class="img-preview-frame"
+    transition:soft
+    onclick={() => (expanded = true)}
+  >
+    <span class="img-preview-slot" class:loading={!imageReady}>
+      <span class="img-preview-skel settle-shimmer" aria-hidden="true"></span>
+      <img
+        class="img-preview"
+        class:settled={imageReady}
+        src={previewUrl}
+        alt={name}
+        onload={() => (imageReady = true)}
+      />
+    </span>
     <span class="visually-hidden">Expand image</span>
   </button>
 {/if}
@@ -92,7 +123,7 @@
   <IconButton label="Download {name}" onclick={onDownload}>
     <IconGlyph name="download" />
   </IconButton>
-  {#if !previewUrl}
+  {#if !previewUrl || failed}
     <span class="file-name">{name}</span>
   {/if}
 </div>

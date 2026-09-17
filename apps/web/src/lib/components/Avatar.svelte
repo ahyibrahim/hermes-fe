@@ -14,14 +14,19 @@
   } = $props();
 
   let url = $state<string | null>(null);
+  let faceReady = $state(false);
 
   $effect(() => {
     const current = user;
     let cancelled = false;
     url = null;
+    faceReady = false;
     void loadAvatarUrl(getSession(), current).then((next) => {
       if (!cancelled) {
         url = next;
+        if (!next) {
+          faceReady = false;
+        }
       }
     });
     return () => {
@@ -33,10 +38,15 @@
 </script>
 
 <span class="avatar-wrap" class:online>
+  <span class="avatar-face placeholder {size} {colorClass(user.color)}" aria-hidden="true">{initial}</span>
   {#if url}
-    <img class="avatar-face {size} {colorClass(user.color)}" src={url} alt="" />
-  {:else}
-    <span class="avatar-face placeholder {size} {colorClass(user.color)}" aria-hidden="true">{initial}</span>
+    <img
+      class="avatar-face avatar-face-img {size} {colorClass(user.color)}"
+      class:settled={faceReady}
+      src={url}
+      alt=""
+      onload={() => (faceReady = true)}
+    />
   {/if}
   {#if online}
     <span class="presence-badge" aria-label="online"></span>

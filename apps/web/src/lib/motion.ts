@@ -57,17 +57,24 @@ export function soft(node: Element, params?: FadeParams): TransitionConfig {
   return fade(node, { duration: duration(motionMs.base), ...params });
 }
 
-/** Toasts — rise from below. */
+/** Toasts / call invite — rise + soft scale from below. */
 export function toast(node: Element, params?: FlyParams): TransitionConfig {
   if (prefersReducedMotion()) {
     return fade(node, { duration: duration(motionMs.fast) });
   }
-  return fly(node, {
-    y: 14,
-    duration: duration(motionMs.slow),
-    easing: cubicOut,
-    ...params
-  });
+  const y = typeof params?.y === 'number' ? params.y : 18;
+  const d = duration(typeof params?.duration === 'number' ? params.duration : motionMs.slow);
+  const easing = params?.easing ?? cubicOut;
+  const start = 0.94;
+  return {
+    duration: d,
+    easing,
+    css: (t) => {
+      const ty = (1 - t) * y;
+      const s = start + (1 - start) * t;
+      return `opacity: ${t}; transform: translateY(${ty}px) scale(${s});`;
+    }
+  };
 }
 
 /** Call drawer / vertical sections. */

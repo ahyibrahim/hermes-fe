@@ -27,49 +27,60 @@ Local commits only until milestone ships. No push unless user approves.
 |---------|--------|----------------|
 | A — motion tokens, overlay enter/exit, rail slide | **done** (soaked) | `fluid-a: …` |
 | B — room-switch dual-buffer | **done** (soaked) | `39b506d` `fluid-b: keep transcript visible across room switches` |
-| C — message physics + scroll | **done** (soak) | See below |
-| D — async settle + composer + **call invite toast** | pending | Redesign ugly incoming-call banner + stronger motion |
+| C — message physics + scroll | **done** (soaked) | `84a12b3` `fluid-c: add message enter physics and smooth scroll pin` |
+| D — async settle + composer + **call invite toast** | **done** (soak) | See below |
 | E — auth/profile VT + **phone rail overlay** | pending | Must fix phone letter-stack crush (parked from A soak) |
 
-## Next chat starter (Release D)
+## Next chat starter (Release E)
 
 Paste something like:
 
-> Implement **Fluid UI Release D only** on hermes-fe branch `fluid-ui`.  
+> Implement **Fluid UI Release E only** on hermes-fe branch `fluid-ui`.  
 > Read `FLUID-UI-HANDOFF.md` and plan `fluid_ui_overhaul_9baddf28`.  
-> Goal: async settle (link/YT/image/avatar) + composer height motion + call invite toast redesign/motion.  
-> Commit as `fluid-d: …`. Keep commits local. Rebuild FE for throwaway on :3001 when done. Do not start E.  
-> Throwaway stays on http://127.0.0.1:3001. Handoff + plan are the source of truth for D.
+> Goal: auth/profile view transitions + phone rail overlay (fix letter-stack crush) + mobile drawers.  
+> Commit as `fluid-e: …`. Keep commits local. Rebuild FE for throwaway on :3001 when done.  
+> Throwaway stays on http://127.0.0.1:3001. Handoff + plan are the source of truth for E.
 
-### C locked approach (implemented)
+### D locked approach (implemented)
+
+1. Link / YouTube / image / avatar: reserved skeleton (or fixed footprint) → crossfade settle; YT meta fills without layout thrash.
+2. Composer `growComposer` eases height via measured prev→next; send control micro-flash aligned with `playSfx('send')`.
+3. Typing: reserved `composer-presence` strip + soft ambient rule; connection: soft composer border / whoami cue ambient (not label-only).
+4. Call invite toast: compact strip (avatar, “Incoming call”, name, room) + Join / quiet dismiss; stronger `toast` (rise + scale) + live pulse; phone still above composer.
+5. Reuses A motion tokens / `soft` / strengthened `toast` — no second toast system.
+
+### D primary files
+
+- `apps/web/src/lib/components/LinkPreviewCard.svelte`
+- `apps/web/src/lib/components/YouTubePreviewCard.svelte`
+- `apps/web/src/lib/components/ImagePreview.svelte`
+- `apps/web/src/lib/components/Avatar.svelte`
+- `apps/web/src/lib/components/ChatShell.svelte` (composer, presence, call toast)
+- `apps/web/src/lib/motion.ts` (`toast` rise+scale)
+- `apps/web/src/app.css` (settle shimmer, composer ambient, `.call-toast*`)
+
+### D smoke checklist
+
+- [ ] Paste link / YT: skeleton or reserved space, then soft settle (no hard jump)
+- [ ] Image attach: reserved skel → image crossfade; stick-to-bottom still OK
+- [ ] Avatars: letter → face crossfade without footprint change
+- [ ] Composer multiline grow/shrink eases; send flash + SFX together
+- [ ] Someone typing: presence strip under header of composer area, no layout snap
+- [ ] Disconnect / reconnect: soft ambient on composer / whoami (not only menu text)
+- [ ] Incoming call (other room): compact invite toast; Join / dismiss; pulse; phone above Send
+- [ ] `prefers-reduced-motion`: shortened fades, no large travel / pulse
+
+## Known follow-ups (for later releases)
+
+- **E — Phone rail crush:** Expanding rooms/people under `PHONE_MAX_WIDTH_MQ` still uses desktop 3-column grid → chat crushed to letter-stacked text. Fix: overlay/full-bleed drawer over chat (do not shrink center). Documented in plan Release E.
+
+## C notes (done, soaked)
 
 1. Incoming message enter (short rise/fade); outgoing send with origin bias from composer (`msgEnter` in `motion.ts`).
 2. Delete: soft body fade-out + tombstone fade-in; group slots use short `animate:flip` for height settle.
 3. Stick-to-bottom uses short smooth pin when transcript is idle; ResizeObserver / room-scene commits stay instant; jump-to-latest glides.
 4. **Density rule:** `liveEnterIds` gates enter motion — only `session.on('message')` appends animate; room history / `commitTranscript` / `syncFromSession` clear the set (no full-history restagger).
 5. Performance: `content-visibility: auto` on `.msg-cluster`.
-
-### C primary files
-
-- `apps/web/src/lib/components/ChatShell.svelte` (scroll pin, jump, liveEnterIds)
-- `apps/web/src/lib/components/MessageItem.svelte` / `MessageGroup.svelte`
-- `apps/web/src/lib/motion.ts` (`msgEnter`)
-- `apps/web/src/app.css` (cluster content-visibility, slot spacing)
-
-### C smoke checklist
-
-- [ ] Send own message: rises from composer; stick-to-bottom smooth pins
-- [ ] Receive message while at bottom: short rise/fade; stays pinned
-- [ ] Jump-to-latest glides (not hard snap)
-- [ ] Room hop: no per-message restagger (B scene only)
-- [ ] Unsend/delete: soft morph to tombstone; list height eases
-- [ ] Long room still scrollable; no obvious jank
-- [ ] `prefers-reduced-motion`: shortened fades, no large travel
-
-## Known follow-ups (for later releases)
-
-- **E — Phone rail crush:** Expanding rooms/people under `PHONE_MAX_WIDTH_MQ` still uses desktop 3-column grid → chat crushed to letter-stacked text. Fix: overlay/full-bleed drawer over chat (do not shrink center). Documented in plan Release E.
-- **D — Call invite toast:** Incoming-call banner (DM/group when someone else starts a call) is plain and ugly. Redesign as compact invite (avatar, title, Join/dismiss) + stronger enter/exit/pulse on top of A’s `transition:toast`. Documented in plan Release D.
 
 ## B notes (done, soaked)
 

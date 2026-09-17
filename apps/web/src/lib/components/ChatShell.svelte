@@ -84,6 +84,8 @@
   let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
   let notifyMuted = $state(false);
   let callToast = $state<{ room: string; user: string } | null>(null);
+  let sendFlash = $state(false);
+  let sendFlashTimer: ReturnType<typeof setTimeout> | null = null;
   let watch = $state<{
     room: string;
     videoId: string;
@@ -663,9 +665,32 @@
     if (!composer) {
       return;
     }
-    composer.style.height = 'auto';
+    const el = composer;
+    const prev = el.offsetHeight;
+    el.style.height = 'auto';
     const max = 8 * 16;
-    composer.style.height = `${Math.min(composer.scrollHeight, max)}px`;
+    const next = Math.min(el.scrollHeight, max);
+    if (prefersReducedMotion() || prev === next) {
+      el.style.transition = '';
+      el.style.height = `${next}px`;
+      return;
+    }
+    el.style.transition = '';
+    el.style.height = `${prev}px`;
+    void el.offsetHeight;
+    el.style.transition = `height ${motionMs.base}ms var(--ease-out)`;
+    el.style.height = `${next}px`;
+  }
+
+  function flashSendControl(): void {
+    if (sendFlashTimer) {
+      clearTimeout(sendFlashTimer);
+    }
+    sendFlash = true;
+    sendFlashTimer = setTimeout(() => {
+      sendFlash = false;
+      sendFlashTimer = null;
+    }, prefersReducedMotion() ? 120 : motionMs.base);
   }
 
   function stopLocalTyping(): void {
@@ -1128,6 +1153,7 @@
       stickToBottom = true;
       showJump = false;
       growComposer();
+      flashSendControl();
       unlockSfx();
       playSfx('send');
     } catch (error) {
@@ -1773,6 +1799,8 @@
               type="button"
               class="whoami-btn"
               class:unhealthy={status !== 'open'}
+              class:status-ambient={status !== 'open'}
+              data-status={status}
               aria-expanded={showUserMenu}
               aria-haspopup="menu"
               aria-label="Account menu"
@@ -1900,15 +1928,19 @@
       </div>
     {/if}
 
-    {#if typingUsers.length > 0}
-      <div class="typing-indicator" aria-live="polite" transition:soft>
-        <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span>{typingLabel(typingUsers)}</span>
-      </div>
-    {/if}
+    <div class="composer-presence" class:active={typingUsers.length > 0} aria-live="polite">
+      {#if typingUsers.length > 0}
+        <div class="typing-indicator" transition:soft>
+          <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>{typingLabel(typingUsers)}</span>
+        </div>
+      {/if}
+    </div>
 
     <form
       class="composer"
+      class:conn-soft={status !== 'open'}
+      data-status={status}
       onsubmit={(event) => {
         event.preventDefault();
         void send();
@@ -1943,14 +1975,16 @@
         onpaste={onComposerPaste}
         onblur={stopLocalTyping}
       ></textarea>
-      <IconButton
-        type="submit"
-        label="Send"
-        tone="accent"
-        disabled={sending || !currentRoom || (!draft.trim() && !pendingFile)}
-      >
-        <IconGlyph name="send" />
-      </IconButton>
+      <span class="composer-send" class:flash={sendFlash}>
+        <IconButton
+          type="submit"
+          label="Send"
+          tone="accent"
+          disabled={sending || !currentRoom || (!draft.trim() && !pendingFile)}
+        >
+          <IconGlyph name="send" />
+        </IconButton>
+      </span>
     </form>
   </section>
 
@@ -2027,18 +2061,33 @@
 </div>
 
 {#if callToast}
-  <div class="call-toast" transition:toast>
-    <p>
-      {callToast.user} started a call in
-      {#if isDm(rooms.find((room) => room.slug === callToast?.room))}
-        @{roomTitle(rooms.find((room) => room.slug === callToast?.room))}
-      {:else}
-        #{roomTitle(rooms.find((room) => room.slug === callToast?.room)) || callToast.room}
-      {/if}
-    </p>
-    <div class="call-toast-actions">
-      <button type="button" onclick={() => joinToast()}>Join</button>
-      <button type="button" class="secondary" onclick={() => (callToast = null)}>Dismiss</button>
+  {@const invite = callToast}
+  {@const toastRoom = rooms.find((room) => room.slug === invite.room)}
+  {@const caller = lookupUser(invite.user) ?? { id: 0, username: invite.user }}
+  {@const roomLabel = isDm(toastRoom)
+    ? `@${roomTitle(toastRoom)}`
+    : `#${roomTitle(toastRoom) || invite.room}`}
+  <div class="call-toast" transition:toast role="status" aria-live="polite">
+    <span class="call-toast-pulse" aria-hidden="true"></span>
+    <div class="call-toast-body">
+      <Avatar user={caller} size="md" />
+      <div class="call-toast-copy">
+        <p class="call-toast-kicker">Incoming call</p>
+        <p class="call-toast-name">{invite.user}</p>
+        <p class="call-toast-room">{roomLabel}</p>
+      </div>
+      <div class="call-toast-actions">
+        <button type="button" class="call-toast-join" onclick={() => joinToast()}>Join</button>
+        <button
+          type="button"
+          class="call-toast-dismiss"
+          title="Dismiss"
+          aria-label="Dismiss"
+          onclick={() => (callToast = null)}
+        >
+          ×
+        </button>
+      </div>
     </div>
   </div>
 {/if}

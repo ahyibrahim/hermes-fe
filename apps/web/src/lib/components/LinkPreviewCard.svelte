@@ -1,20 +1,29 @@
 <script lang="ts">
   import type { LinkPreview } from '@hermes/core';
   import { getSession } from '$lib/client';
+  import { soft } from '$lib/motion';
   import { untrack } from 'svelte';
 
   let { url }: { url: string } = $props();
 
   let preview = $state<LinkPreview | null>(null);
+  let loading = $state(true);
   let imageFailed = $state(false);
   let faviconFailed = $state(false);
+  let imageReady = $state(false);
+
+  const hasCard = $derived(
+    Boolean(preview && (preview.title || preview.description || preview.image))
+  );
 
   $effect(() => {
     const target = url;
     untrack(() => {
       preview = null;
+      loading = true;
       imageFailed = false;
       faviconFailed = false;
+      imageReady = false;
     });
     let cancelled = false;
     void getSession()
@@ -22,10 +31,13 @@
       .then((result) => {
         if (!cancelled) {
           preview = result;
+          loading = false;
         }
       })
       .catch(() => {
-        // Fail soft — keep the bare link.
+        if (!cancelled) {
+          loading = false;
+        }
       });
     return () => {
       cancelled = true;
@@ -33,16 +45,36 @@
   });
 </script>
 
-{#if preview && (preview.title || preview.description || preview.image)}
-  <a class="link-preview-card" href={preview.url || url} target="_blank" rel="noreferrer noopener">
+{#if loading}
+  <div class="link-preview-card link-preview-skeleton" aria-hidden="true" transition:soft>
+    <div class="link-preview-skel-image settle-shimmer"></div>
+    <span class="link-preview-meta">
+      <span class="settle-line settle-line-sm settle-shimmer"></span>
+      <span class="settle-line settle-line-md settle-shimmer"></span>
+      <span class="settle-line settle-line-lg settle-shimmer"></span>
+    </span>
+  </div>
+{:else if hasCard && preview}
+  <a
+    class="link-preview-card"
+    href={preview.url || url}
+    target="_blank"
+    rel="noreferrer noopener"
+    transition:soft
+  >
     {#if preview.image && !imageFailed}
-      <img
-        class="link-preview-image"
-        src={preview.image}
-        alt=""
-        loading="lazy"
-        onerror={() => (imageFailed = true)}
-      />
+      <span class="link-preview-image-slot">
+        <span class="link-preview-skel-image settle-shimmer" class:hidden={imageReady}></span>
+        <img
+          class="link-preview-image"
+          class:settled={imageReady}
+          src={preview.image}
+          alt=""
+          loading="lazy"
+          onload={() => (imageReady = true)}
+          onerror={() => (imageFailed = true)}
+        />
+      </span>
     {/if}
     <span class="link-preview-meta">
       {#if preview.site || preview.favicon}
