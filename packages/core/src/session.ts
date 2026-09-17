@@ -94,6 +94,9 @@ export class SessionController {
   private readonly listeners = new Map<keyof SessionEventMap, Set<SessionListener<keyof SessionEventMap>>>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shuttingDown = false;
+  /** Non-null while enterRoom is loading history; keeps prior messages until apply. */
+  private enteringRoom: string | null = null;
+  private enterGeneration = 0;
 
   constructor(options: SessionControllerOptions) {
     this.state = {
@@ -413,7 +416,12 @@ export class SessionController {
       return;
     }
 
+    const generation = ++this.enterGeneration;
     const rooms = await this.listRooms();
+    if (generation !== this.enterGeneration) {
+      return;
+    }
+
     const resolved = resolveRoom(roomInput, rooms);
     const room = resolved.slug;
 
@@ -421,16 +429,22 @@ export class SessionController {
       this.emit('info', { message: `Using room ${resolved.slug} (from ${roomInput}).` });
     }
 
+    // Keep prior messages until history applies so UI is not forced through an empty frame.
     this.state.room = room;
-    this.state.messages = [];
-    this.displayedMessageIds.clear();
+    this.enteringRoom = room;
     this.setRoster(resolved.members.length > 0 ? resolved.members : this.state.username ? [this.state.username] : []);
 
     try {
       await this.connect();
+      if (generation !== this.enterGeneration) {
+        return;
+      }
       await this.ws.joinRoom(room);
     } catch (error) {
       if (error instanceof AuthError) {
+        if (generation === this.enterGeneration) {
+          this.enteringRoom = null;
+        }
         throw error;
       }
       this.emit('info', {
@@ -439,25 +453,28 @@ export class SessionController {
       this.emit('info', { message: 'Loading history over REST anyway.' });
     }
 
+    if (generation !== this.enterGeneration) {
+      return;
+    }
+
     this.emit('presence', { users: [...this.state.roomUsers] });
 
     try {
       if (!this.state.token) {
         this.emit('error', { message: 'Could not load history: missing auth token. Please login again.' });
+        this.applyRoomHistory([], generation);
       } else {
         const messages = await this.withAuth('rest', () => this.api.listMessages(room, this.state.token as string));
-        this.state.messages = messages;
-        for (const message of messages) {
-          if (message.id != null) {
-            this.displayedMessageIds.add(message.id);
-          }
-        }
-        this.emit('history', { messages });
+        this.applyRoomHistory(messages, generation);
       }
     } catch (error) {
       if (error instanceof AuthError) {
+        if (generation === this.enterGeneration) {
+          this.enteringRoom = null;
+        }
         throw error;
       }
+      this.applyRoomHistory([], generation);
       this.emit('error', {
         message: `Could not load history: ${error instanceof Error ? error.message : String(error)}`,
       });
@@ -638,6 +655,10 @@ export class SessionController {
           this.emit('roomActivity', { room: incoming.room, message: incoming });
           return;
         }
+        // Avoid mixing live frames into the outgoing transcript while history loads.
+        if (this.enteringRoom) {
+          return;
+        }
         this.displayMessage(incoming);
         return;
       }
@@ -678,6 +699,7 @@ export class SessionController {
           this.state.messages = [];
           this.state.roomUsers = [];
           this.displayedMessageIds.clear();
+          this.enteringRoom = null;
         }
         this.emit('roomDeleted', { room: payload.room });
         return;
@@ -947,6 +969,21 @@ export class SessionController {
         `Cannot join call over WebSocket. ${error instanceof Error ? error.message : String(error)}`
       );
     }
+  }
+
+  private applyRoomHistory(messages: MessageRecord[], generation: number): void {
+    if (generation !== this.enterGeneration) {
+      return;
+    }
+    this.state.messages = messages;
+    this.displayedMessageIds.clear();
+    for (const message of messages) {
+      if (message.id != null) {
+        this.displayedMessageIds.add(message.id);
+      }
+    }
+    this.enteringRoom = null;
+    this.emit('history', { messages });
   }
 
   private displayMessage(message: MessageRecord): void {

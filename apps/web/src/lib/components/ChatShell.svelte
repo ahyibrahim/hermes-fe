@@ -13,7 +13,7 @@
   import UserChip from '$lib/components/UserChip.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
   import WatchOverlay from '$lib/components/WatchOverlay.svelte';
-  import { soft, toast } from '$lib/motion';
+  import { motionMs, prefersReducedMotion, soft, toast } from '$lib/motion';
   import {
     clearDraft,
     formatUnread,
@@ -32,10 +32,16 @@
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
   import { onMount, tick } from 'svelte';
 
+  type TranscriptPhase = 'idle' | 'leaving' | 'entering';
+
   let rooms = $state<RoomRecord[]>([]);
   let directory = $state<PublicUser[]>([]);
   let online = $state<string[]>([]);
-  let messages = $state<MessageRecord[]>([]);
+  /** Rendered transcript buffer — held across room switches until history is ready. */
+  let displayMessages = $state<MessageRecord[]>([]);
+  let transcriptPhase = $state<TranscriptPhase>('idle');
+  let pendingRoom = $state<string | null>(null);
+  let roomSwitchGen = 0;
   let users = $state<string[]>([]);
   let status = $state<ConnectionStatus>('idle');
   let currentRoom = $state<string | null>(null);
@@ -132,7 +138,7 @@
       })
   );
   const notifyOn = $derived(!notifyMuted);
-  const transcriptRows = $derived(groupTranscript(messages));
+  const transcriptRows = $derived(groupTranscript(displayMessages));
   const addCandidates = $derived(
     people.filter(
       (person) =>
@@ -359,13 +365,59 @@
     }
   }
 
-  function syncFromSession(): void {
+  function syncMetaFromSession(): void {
     const state = session.getState();
-    messages = [...state.messages];
     users = [...state.roomUsers].sort((a, b) => a.localeCompare(b));
     currentRoom = state.room;
     username = state.username;
     status = session.getConnectionStatus();
+  }
+
+  function syncFromSession(): void {
+    syncMetaFromSession();
+    const state = session.getState();
+    // Hold the outgoing transcript while a room switch is in flight (session may
+    // still briefly expose empty or stale messages until history applies).
+    if (pendingRoom) {
+      return;
+    }
+    displayMessages = [...state.messages];
+  }
+
+  function clearDisplayTranscript(): void {
+    pendingRoom = null;
+    transcriptPhase = 'idle';
+    displayMessages = [];
+  }
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function commitTranscript(next: MessageRecord[], room: string, gen: number): Promise<void> {
+    const reduced = prefersReducedMotion();
+    const outMs = reduced ? 80 : motionMs.fast;
+    const inMs = reduced ? 80 : motionMs.base;
+
+    if (displayMessages.length > 0) {
+      transcriptPhase = 'leaving';
+      await sleep(outMs);
+    }
+    if (gen !== roomSwitchGen || (pendingRoom && pendingRoom !== room)) {
+      return;
+    }
+
+    displayMessages = next;
+    pendingRoom = null;
+    stickToBottom = true;
+    showJump = false;
+    transcriptPhase = 'entering';
+    await tick();
+    pinToLatest();
+    await sleep(inMs);
+    if (gen === roomSwitchGen && transcriptPhase === 'entering') {
+      transcriptPhase = 'idle';
+    }
   }
 
   function flash(message: string, isError = false): void {
@@ -641,14 +693,29 @@
     }
     try {
       if (slug !== currentRoom) {
+        const gen = ++roomSwitchGen;
+        pendingRoom = slug;
+        // Optimistic header/rail highlight while history loads.
+        currentRoom = slug;
         await session.enterRoom(slug);
-        syncFromSession();
+        if (gen !== roomSwitchGen) {
+          return;
+        }
+        syncMetaFromSession();
         draft = loadDraft(slug);
         queueMicrotask(growComposer);
+        if (pendingRoom === slug) {
+          await commitTranscript([...session.getState().messages], slug, gen);
+        }
       }
       clearUnread(slug);
       await session.markRoomRead(slug);
     } catch (error) {
+      if (pendingRoom === slug) {
+        pendingRoom = null;
+        transcriptPhase = 'idle';
+        syncFromSession();
+      }
       flash(error instanceof Error ? error.message : String(error), true);
     }
   }
@@ -841,7 +908,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          messages = [];
+          clearDisplayTranscript();
           closeRoomMenu();
         }
       }
@@ -867,7 +934,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          messages = [];
+          clearDisplayTranscript();
           closeRoomMenu();
         }
       }
@@ -895,7 +962,9 @@
   async function unsend(message: MessageRecord): Promise<void> {
     try {
       await session.unsendMessage(message.id);
-      syncFromSession();
+      if (!pendingRoom) {
+        displayMessages = [...session.getState().messages];
+      }
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
     }
@@ -962,7 +1031,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          messages = [];
+          clearDisplayTranscript();
         }
       }
       closeRoomMenu();
@@ -1086,7 +1155,7 @@
   }
 
   $effect(() => {
-    messages;
+    displayMessages;
     if (!scroller) {
       return;
     }
@@ -1171,13 +1240,20 @@
       session.on('history', () => {
         stickToBottom = true;
         showJump = false;
-        syncFromSession();
+        syncMetaFromSession();
+        // selectRoom owns the dual-buffer commit while a switch is pending.
+        if (!pendingRoom) {
+          displayMessages = [...session.getState().messages];
+        }
         if (currentRoom) {
           clearUnread(currentRoom);
         }
       }),
       session.on('message', (message) => {
-        syncFromSession();
+        syncMetaFromSession();
+        if (!pendingRoom) {
+          displayMessages = [...session.getState().messages];
+        }
         if (message.sender && (!message.room || message.room === currentRoom)) {
           typingUsers = typingUsers.filter((name) => name !== message.sender);
         }
@@ -1250,7 +1326,9 @@
         maybeReceiveCue(room, message);
       }),
       session.on('messageDeleted', () => {
-        syncFromSession();
+        if (!pendingRoom) {
+          displayMessages = [...session.getState().messages];
+        }
       }),
       session.on('userUpdated', (user) => {
         directory = directory.map((entry) =>
@@ -1270,7 +1348,7 @@
             await selectRoom(next.slug);
           } else {
             currentRoom = null;
-            messages = [];
+            clearDisplayTranscript();
           }
           closeRoomMenu();
         }
@@ -1283,7 +1361,7 @@
             void selectRoom(next.slug);
           } else {
             currentRoom = null;
-            messages = [];
+            clearDisplayTranscript();
           }
           closeRoomMenu();
         }
@@ -1577,9 +1655,11 @@
             aria-label="{roomTitle(currentRoomRecord())}, room menu"
             onclick={toggleRoomMenu}
           >
-            <h2>
-              <span class="hash">#</span>{roomTitle(currentRoomRecord())}
-            </h2>
+            {#key currentRoom}
+              <h2 in:soft>
+                <span class="hash">#</span>{roomTitle(currentRoomRecord())}
+              </h2>
+            {/key}
             {#if memberNames.length > 0}
               <MemberStack names={memberNames} {directory} />
             {/if}
@@ -1612,13 +1692,15 @@
             />
           {/if}
         {:else}
-          <h2>
-            {#if currentRoomRecord()}
-              <span class="hash">@</span>{roomTitle(currentRoomRecord())}
-            {:else}
-              Hermes
-            {/if}
-          </h2>
+          {#key currentRoom}
+            <h2 in:soft>
+              {#if currentRoomRecord()}
+                <span class="hash">@</span>{roomTitle(currentRoomRecord())}
+              {:else}
+                Hermes
+              {/if}
+            </h2>
+          {/key}
         {/if}
       </div>
       <div class="top-bar-actions">
@@ -1722,11 +1804,15 @@
     {/if}
 
     <div class="messages" bind:this={scroller} onscroll={onTranscriptScroll}>
-      <div class="messages-body">
+      <div
+        class="messages-body"
+        class:scene-leaving={transcriptPhase === 'leaving'}
+        class:scene-entering={transcriptPhase === 'entering'}
+      >
         {#if banner}
           <p class="banner" class:error={bannerError}>{banner}</p>
         {/if}
-        {#if messages.length === 0}
+        {#if displayMessages.length === 0 && transcriptPhase === 'idle' && !pendingRoom}
           <p class="empty-hint">No messages yet.</p>
         {:else}
           {#each transcriptRows as row (row.key)}

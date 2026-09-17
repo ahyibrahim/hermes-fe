@@ -1240,6 +1240,45 @@ button {
   flex-shrink: 0;
 }
 
+.messages-body.scene-leaving {
+  opacity: 0;
+  transform: translateX(-10px);
+  transition:
+    opacity var(--motion-fast) var(--ease-in),
+    transform var(--motion-fast) var(--ease-in);
+  pointer-events: none;
+}
+
+.messages-body.scene-entering {
+  animation: transcript-scene-in var(--motion-base) var(--ease-out);
+}
+
+@keyframes transcript-scene-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .messages-body.scene-leaving {
+    transform: none;
+  }
+
+  @keyframes transcript-scene-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
 .msg-cluster {
   display: grid;
   grid-template-columns: 1.85rem minmax(0, 1fr);

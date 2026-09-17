@@ -26,33 +26,34 @@ Local commits only until milestone ships. No push unless user approves.
 | Release | Status | Commit / notes |
 |---------|--------|----------------|
 | A — motion tokens, overlay enter/exit, rail slide | **done** (soaked) | `fluid-a: add motion tokens, overlay enter/exit, and rail slide` |
-| B — room-switch dual-buffer | **next** | See below |
+| B — room-switch dual-buffer | **done** | ChatShell `displayMessages` + scene phase; session defers clear until history |
 | C — message physics + scroll | pending | |
 | D — async settle + composer + **call invite toast** | pending | Redesign ugly incoming-call banner + stronger motion |
 | E — auth/profile VT + **phone rail overlay** | pending | Must fix phone letter-stack crush (parked from A soak) |
 
-## Next chat starter (Release B)
+## Next chat starter (Release C)
 
 Paste something like:
 
-> Implement **Fluid UI Release B only** on hermes-fe branch `fluid-ui`.  
+> Implement **Fluid UI Release C only** on hermes-fe branch `fluid-ui`.  
 > Read `FLUID-UI-HANDOFF.md` and plan `fluid_ui_overhaul_9baddf28`.  
-> Goal: room switch never flashes empty transcript — ChatShell dual-buffer + minimal session cooperation.  
-> Commit as `fluid-b: …`. Keep commits local. Rebuild FE for throwaway on :3001 when done. Do not start C–E.
+> Goal: message enter/send physics + smooth scroll pin (viewport-limited); no full-history restagger.  
+> Commit as `fluid-c: …`. Keep commits local. Rebuild FE for throwaway on :3001 when done. Do not start D–E.
 
-### B locked approach
+### B notes (done)
 
-1. ChatShell holds `displayMessages` / transition phase while `selectRoom` / `enterRoom` runs.
-2. Do not bind scroller to wiped session messages mid-switch.
-3. Small change in `packages/core/src/session.ts` `enterRoom` so clearing messages does not force a blank UI frame (clear on history apply, or ignore empty sync while pending).
-4. Crossfade/slide center column when history arrives; composer stays planted.
+1. ChatShell holds `displayMessages` / `transcriptPhase` / `pendingRoom` while `selectRoom` → `enterRoom` runs.
+2. Scroller binds to `displayMessages`, not wiped session messages mid-switch.
+3. `session.enterRoom` keeps prior messages until `applyRoomHistory`; skips live appends while `enteringRoom` is set; supersede via `enterGeneration`.
+4. Crossfade/slide center column via `.scene-leaving` / `.scene-entering`; composer stays planted; header title soft-fades on room key.
 
-### B primary files
+### B smoke checklist
 
-- `apps/web/src/lib/components/ChatShell.svelte`
-- `packages/core/src/session.ts` (minimal)
-- Message list / `MessageGroup` as needed
-- Reuse `apps/web/src/lib/motion.ts` + tokens from A
+- [ ] Rapid room hopping: transcript never flashes empty / “No messages yet”
+- [ ] Unread badges + mark-read still correct after switch
+- [ ] DM start / create room still lands on the new transcript
+- [ ] Call join from toast still switches room correctly
+- [ ] `prefers-reduced-motion`: shorter opacity-only scene
 
 ## Known follow-ups (for later releases)
 
