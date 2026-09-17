@@ -4,6 +4,8 @@
   import HoverCard from '$lib/components/HoverCard.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
+  import LinkPreviewCard from '$lib/components/LinkPreviewCard.svelte';
+  import YouTubePreviewCard from '$lib/components/YouTubePreviewCard.svelte';
   import { onDestroy } from 'svelte';
 
   let {
@@ -51,18 +53,34 @@
       {#if onWatchTogether && isYouTubeUrl(part.value)}
         <span class="watch-link-block">
           <a href={part.value} target="_blank" rel="noreferrer noopener">{part.value}</a>
-          <button
-            type="button"
-            class="watch-together-cta"
-            title="Watch together"
-            onclick={() => onWatchTogether(part.value)}
-          >
-            <IconGlyph name="watch" size={13} />
-            <span>Watch together</span>
-          </button>
+          <YouTubePreviewCard url={part.value} {onWatchTogether} />
+          <span class="watch-actions">
+            <button
+              type="button"
+              class="watch-together-cta"
+              title="Watch together"
+              onclick={() => onWatchTogether(part.value)}
+            >
+              <IconGlyph name="watch" size={13} />
+              <span>Watch together</span>
+            </button>
+            <a
+              class="watch-visit-link"
+              href={part.value}
+              target="_blank"
+              rel="noreferrer noopener"
+              title="Visit link"
+              aria-label="Visit link"
+            >
+              <IconGlyph name="external-link" size={13} />
+            </a>
+          </span>
         </span>
       {:else}
-        <a href={part.value} target="_blank" rel="noreferrer noopener">{part.value}</a>
+        <span class="url-block">
+          <a href={part.value} target="_blank" rel="noreferrer noopener">{part.value}</a>
+          <LinkPreviewCard url={part.value} />
+        </span>
       {/if}
     {:else if part.type === 'mention'}
       {#if lookup(part.username)}
@@ -80,46 +98,53 @@
       <em>{part.value}</em>
     {:else if part.type === 'code'}
       <div class="fence-wrap">
-        <span class="fence-copy">
-          <IconButton
-            label={copiedIndex === index ? 'Copied' : 'Copy code'}
-            title={copiedIndex === index ? 'Copied' : 'Copy code'}
-            onclick={() => copyFence(index, part.value)}
-          >
-            {#if copiedIndex === index}
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                <path
-                  d="M3.5 8.4 6.6 11.5 12.5 4.5"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            {:else}
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                <rect
-                  x="5.2"
-                  y="3.4"
-                  width="7.4"
-                  height="9.4"
-                  rx="1.2"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.4"
-                />
-                <path
-                  d="M3.6 11.2V4.4A1.2 1.2 0 0 1 4.8 3.2h5.6"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.4"
-                  stroke-linecap="round"
-                />
-              </svg>
-            {/if}
-          </IconButton>
-        </span>
+        <div class="fence-header">
+          {#if part.lang}
+            <span class="fence-lang">{part.lang}</span>
+          {:else}
+            <span class="fence-lang fence-lang-empty"></span>
+          {/if}
+          <span class="fence-copy">
+            <IconButton
+              label={copiedIndex === index ? 'Copied' : 'Copy code'}
+              title={copiedIndex === index ? 'Copied' : 'Copy code'}
+              onclick={() => copyFence(index, part.value)}
+            >
+              {#if copiedIndex === index}
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                  <path
+                    d="M3.5 8.4 6.6 11.5 12.5 4.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              {:else}
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                  <rect
+                    x="5.2"
+                    y="3.4"
+                    width="7.4"
+                    height="9.4"
+                    rx="1.2"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                  />
+                  <path
+                    d="M3.6 11.2V4.4A1.2 1.2 0 0 1 4.8 3.2h5.6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              {/if}
+            </IconButton>
+          </span>
+        </div>
         <pre class="fence"><code>{part.value}</code></pre>
       </div>
     {/if}

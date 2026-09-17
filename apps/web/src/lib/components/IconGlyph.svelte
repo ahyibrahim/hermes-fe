@@ -20,6 +20,7 @@
       | 'profile'
       | 'leave'
       | 'watch'
+      | 'external-link'
       | 'share'
       | 'share-off'
       | 'cog'
@@ -225,6 +226,23 @@
       stroke-linejoin="round"
     />
     <path d="M5.2 13h5.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+  {:else if name === 'external-link'}
+    <path
+      d="M9.2 3.2h3.6v3.6M12.6 3.4 7.2 8.8"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M6.2 4.2H4.4A1.2 1.2 0 0 0 3.2 5.4v6.4A1.2 1.2 0 0 0 4.4 13h6.4a1.2 1.2 0 0 0 1.2-1.2V9.8"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
   {:else if name === 'chevron-left'}
     <path
       d="M10.2 3.2 5.4 8l4.8 4.8"

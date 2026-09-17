@@ -1,7 +1,7 @@
 export type MessagePart =
   | { type: 'text'; value: string }
   | { type: 'mention'; username: string }
-  | { type: 'code'; value: string }
+  | { type: 'code'; value: string; lang?: string }
   | { type: 'inline_code'; value: string }
   | { type: 'bold'; value: string }
   | { type: 'italic'; value: string }
@@ -173,14 +173,16 @@ export function parseMessageBody(content: string, knownUsers: Iterable<string> =
 
     const afterOpener = start + 3;
     const newline = content.indexOf('\n', afterOpener);
+    const langRaw = newline === -1 ? content.slice(afterOpener) : content.slice(afterOpener, newline);
+    const lang = langRaw.trim() || undefined;
     const codeStart = newline === -1 ? afterOpener : newline + 1;
     const closer = content.indexOf('```', codeStart);
     if (closer === -1) {
-      parts.push({ type: 'code', value: content.slice(codeStart) });
+      parts.push({ type: 'code', value: content.slice(codeStart), ...(lang ? { lang } : {}) });
       break;
     }
 
-    parts.push({ type: 'code', value: content.slice(codeStart, closer) });
+    parts.push({ type: 'code', value: content.slice(codeStart, closer), ...(lang ? { lang } : {}) });
     i = closer + 3;
     if (content[i] === '\n') {
       i += 1;

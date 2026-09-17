@@ -28,9 +28,9 @@ test('parseMessageBody highlights known @usernames', () => {
 
 test('parseMessageBody turns fenced regions into code and still autolinks after', () => {
   const parts = parseMessageBody('before\n```js\nhttps://nope.example\n```\nafter https://yes.example');
-  assert.deepEqual(parts, [
-    { type: 'text', value: 'before\n' },
-    { type: 'code', value: 'https://nope.example\n' },
+  assert.deepEqual(parts[0], { type: 'text', value: 'before\n' });
+  assert.deepEqual(parts[1], { type: 'code', value: 'https://nope.example\n', lang: 'js' });
+  assert.deepEqual(parts.slice(2), [
     { type: 'text', value: 'after ' },
     { type: 'url', value: 'https://yes.example' },
   ]);

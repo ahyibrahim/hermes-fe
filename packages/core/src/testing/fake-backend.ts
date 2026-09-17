@@ -1259,6 +1259,15 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         return;
       }
 
+      if (method === 'GET' && url.pathname === '/link-preview') {
+        const username = requireUser(req, res);
+        if (!username) {
+          return;
+        }
+        sendJson(res, 200, { preview: null });
+        return;
+      }
+
       sendJson(res, 404, { error: 'not found' });
     } catch (error) {
       sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });

@@ -11,6 +11,7 @@ import {
   RegisterResponse,
   RoomRecord,
   UserRole,
+  LinkPreview,
 } from './types.js';
 
 export class HermesApi {
@@ -330,5 +331,24 @@ export class HermesApi {
 
     const mime = response.headers.get('content-type') || 'application/octet-stream';
     return { bytes: new Uint8Array(await response.arrayBuffer()), mime };
+  }
+
+  async getLinkPreview(url: string, token: string): Promise<LinkPreview | null> {
+    const response = await fetch(
+      `${this.baseUrl}/link-preview?url=${encodeURIComponent(url)}`,
+      { headers: this.authHeaders(token) }
+    );
+
+    if (response.status === 401) {
+      const text = await response.text();
+      throw new AuthError(`Link preview failed: 401 ${text}`.trim());
+    }
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const body = (await response.json()) as { preview?: LinkPreview | null };
+    return body.preview ?? null;
   }
 }

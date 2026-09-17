@@ -7,6 +7,7 @@ import {
   HealthResponse,
   IceCandidatePayload,
   IceConfig,
+  LinkPreview,
   MessageRecord,
   PublicUser,
   RegisterResponse,
@@ -507,6 +508,17 @@ export class SessionController {
       throw new Error('Please login first.');
     }
     return this.withAuth('rest', () => this.api.fetchFile(fileId, this.state.token as string));
+  }
+
+  async getLinkPreview(url: string): Promise<LinkPreview | null> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    try {
+      return await this.withAuth('rest', () => this.api.getLinkPreview(url, this.state.token as string));
+    } catch {
+      return null;
+    }
   }
 
   async getIce(): Promise<IceConfig> {
