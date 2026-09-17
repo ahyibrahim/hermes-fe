@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ConnectionStatus } from '@hermes/core';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
+  import { popup } from '$lib/motion';
   import { colorClass } from '$lib/ui';
 
   let {
@@ -24,7 +25,7 @@
   } = $props();
 </script>
 
-<div class="header-menu user-menu" role="dialog" aria-label="Account">
+<div class="header-menu user-menu" role="dialog" aria-label="Account" transition:popup>
   <p class="menu-who {colorClass(color)}">{username}</p>
   <hr class="menu-rule" />
   <a class="menu-item" href="/profile">

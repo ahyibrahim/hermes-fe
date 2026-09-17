@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { backdrop, panel } from '$lib/motion';
 
   let {
     file,
@@ -166,8 +167,8 @@
   });
 </script>
 
-<div class="crop-modal">
-  <div class="crop-card">
+<div class="crop-modal" transition:backdrop>
+  <div class="crop-card" transition:panel>
     <h2>Crop avatar</h2>
     <p class="lede">Drag to pan. Zoom out to see the whole photo, then frame the square.</p>
     <canvas

@@ -2,6 +2,7 @@
   import type { PublicUser } from '@hermes/core';
   import type { Snippet } from 'svelte';
   import Avatar from '$lib/components/Avatar.svelte';
+  import { popup } from '$lib/motion';
   import { colorClass } from '$lib/ui';
   import { onDestroy, onMount } from 'svelte';
 
@@ -131,7 +132,7 @@
     <!-- stop row-level DM click when interacting with the card -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="hover-card" role="tooltip" onclick={(event) => event.stopPropagation()}>
+    <div class="hover-card" role="tooltip" transition:popup onclick={(event) => event.stopPropagation()}>
       <div class="hover-card-inner">
         <Avatar {user} size="lg" />
         <div class="hover-meta">

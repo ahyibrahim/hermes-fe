@@ -13,6 +13,7 @@
   import UserChip from '$lib/components/UserChip.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
   import WatchOverlay from '$lib/components/WatchOverlay.svelte';
+  import { soft, toast } from '$lib/motion';
   import {
     clearDraft,
     formatUnread,
@@ -1446,10 +1447,11 @@
         <IconGlyph name={roomsCollapsed ? 'chevron-right' : 'chevron-left'} />
       </button>
       {#if !roomsCollapsed}
-        <span>rooms</span>
+        <span transition:soft>rooms</span>
       {/if}
     </div>
     {#if !roomsCollapsed}
+      <div class="rail-body" transition:soft>
       {#if groupRooms.length === 0}
         <p class="empty-hint">No rooms yet.</p>
       {:else}
@@ -1559,6 +1561,7 @@
           New room
         </button>
       {/if}
+      </div>
     {/if}
   </aside>
 
@@ -1750,7 +1753,7 @@
     </div>
 
     {#if showJump}
-      <div class="jump-latest">
+      <div class="jump-latest" transition:soft>
         <IconButton label="Jump to latest" onclick={jumpToLatest}>
           <IconGlyph name="jump" />
         </IconButton>
@@ -1758,7 +1761,7 @@
     {/if}
 
     {#if typingUsers.length > 0}
-      <div class="typing-indicator" aria-live="polite">
+      <div class="typing-indicator" aria-live="polite" transition:soft>
         <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
         <span>{typingLabel(typingUsers)}</span>
       </div>
@@ -1814,7 +1817,7 @@
   <aside class="rail people">
     <div class="rail-heading">
       {#if !peopleCollapsed}
-        <span>people</span>
+        <span transition:soft>people</span>
       {/if}
       <button
         type="button"
@@ -1827,6 +1830,7 @@
       </button>
     </div>
     {#if !peopleCollapsed}
+      <div class="rail-body" transition:soft>
       {#if people.length === 0}
         <p class="empty-hint">Nobody here yet.</p>
       {:else}
@@ -1877,12 +1881,13 @@
           {/each}
         </ul>
       {/if}
+      </div>
     {/if}
   </aside>
 </div>
 
 {#if callToast}
-  <div class="call-toast">
+  <div class="call-toast" transition:toast>
     <p>
       {callToast.user} started a call in
       {#if isDm(rooms.find((room) => room.slug === callToast?.room))}

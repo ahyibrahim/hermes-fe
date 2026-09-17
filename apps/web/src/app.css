@@ -19,6 +19,12 @@
   --status-error: #a33b32;
   --shadow: 0 8px 24px rgba(28, 31, 36, 0.08);
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --motion-scene: 480ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -274,6 +280,7 @@ button {
   display: grid;
   grid-template-columns: 16rem minmax(0, 1fr) 14rem;
   overflow: hidden;
+  transition: grid-template-columns var(--motion-slow) var(--ease-out);
 }
 
 /* Phone is below the old 48rem floor: see PHONE_MAX_WIDTH_MQ in ui.ts. */
@@ -291,6 +298,15 @@ button {
 .rail.people {
   border-right: 0;
   border-left: 1px solid var(--border);
+}
+
+.rail-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .rail-heading {
@@ -324,6 +340,10 @@ button {
 
 .room-list button:hover {
   background: var(--bg-hover);
+}
+
+.room-list button {
+  transition: background-color var(--motion-fast) var(--ease-out);
 }
 
 .room-list button.active {
@@ -425,6 +445,7 @@ button {
   padding: 0.4rem 0.55rem;
   border-radius: 0.35rem;
   cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out);
 }
 
 .people-list .person-row:hover {
@@ -572,29 +593,11 @@ button {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   box-shadow: var(--shadow);
-  animation: add-popup-open 0.12s ease-out;
 }
 
 @media (max-width: 47.99rem) {
   .add-popup {
     max-height: 12rem;
-  }
-}
-
-@keyframes add-popup-open {
-  from {
-    opacity: 0;
-    transform: translateY(-0.25rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .add-popup {
-    animation: none;
   }
 }
 
@@ -640,7 +643,6 @@ button {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   box-shadow: var(--shadow);
-  animation: add-popup-open 0.12s ease-out;
 }
 
 .header-menu.user-menu {
@@ -652,12 +654,6 @@ button {
 @media (max-width: 47.99rem) {
   .header-menu {
     max-height: 14rem;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .header-menu {
-    animation: none;
   }
 }
 
@@ -915,7 +911,6 @@ button {
   border-bottom: 1px solid var(--border);
   background: var(--bg-rail);
   overflow: visible;
-  animation: call-drawer-open 0.2s ease;
 }
 
 .call-drawer-inner {
@@ -1183,13 +1178,6 @@ button {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   box-shadow: var(--shadow);
-  animation: add-popup-open 0.12s ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .call-mic-popup {
-    animation: none;
-  }
 }
 
 .call-mic-option {
@@ -1218,23 +1206,6 @@ button {
   padding: 0 1rem 0.45rem;
   font-size: 0.8rem;
   color: var(--danger);
-}
-
-@keyframes call-drawer-open {
-  from {
-    transform: translateY(-0.6rem);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .call-drawer {
-    animation: none;
-  }
 }
 
 .visually-hidden {
@@ -1574,6 +1545,17 @@ button {
 
 .shell.rooms-collapsed.people-collapsed {
   grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell {
+    transition-duration: 80ms;
+  }
+
+  .room-list button,
+  .people-list .person-row {
+    transition-duration: 80ms;
+  }
 }
 
 .rail-heading {

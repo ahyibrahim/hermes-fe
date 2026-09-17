@@ -3,6 +3,7 @@
   import AddMembersPopup from '$lib/components/AddMembersPopup.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
+  import { popup } from '$lib/motion';
 
   let {
     members,
@@ -65,7 +66,7 @@
   );
 </script>
 
-<div class="header-menu room-menu" role="dialog" aria-label="Room">
+<div class="header-menu room-menu" role="dialog" aria-label="Room" transition:popup>
   <ul class="user-list">
     {#each members as person (person.username)}
       <li class="menu-member">

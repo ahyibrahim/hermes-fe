@@ -3,6 +3,7 @@
   import { getSession } from '$lib/client';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
+  import { backdrop } from '$lib/motion';
 
   let {
     fileId,
@@ -97,7 +98,7 @@
 </div>
 
 {#if expanded && previewUrl}
-  <button type="button" class="call-share-expand" aria-label="Close image" onclick={() => (expanded = false)}>
+  <button type="button" class="call-share-expand" aria-label="Close image" transition:backdrop onclick={() => (expanded = false)}>
     <img src={previewUrl} alt={name} />
   </button>
 {/if}

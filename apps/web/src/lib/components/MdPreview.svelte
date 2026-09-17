@@ -3,6 +3,7 @@
   import { getSession } from '$lib/client';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
+  import { backdrop, panel } from '$lib/motion';
 
   const MAX_PREVIEW_BYTES = 200 * 1024;
 
@@ -131,6 +132,7 @@
   <div
     class="md-expand-backdrop"
     role="presentation"
+    transition:backdrop
     onclick={() => (expanded = false)}
   >
     <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -140,6 +142,7 @@
       role="dialog"
       aria-modal="true"
       aria-label={name}
+      transition:panel
       onclick={(event) => event.stopPropagation()}
     >
       <header class="md-expand-header">

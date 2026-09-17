@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
+  import { backdrop, panel } from '$lib/motion';
   import {
     applyWatchState,
     createYouTubePlayer,
@@ -193,8 +194,8 @@
   });
 </script>
 
-<div class="watch-overlay" role="dialog" aria-modal="true" aria-label="Watch together">
-  <div class="watch-overlay-panel">
+<div class="watch-overlay" role="dialog" aria-modal="true" aria-label="Watch together" transition:backdrop>
+  <div class="watch-overlay-panel" transition:panel>
     <header class="watch-overlay-bar">
       <div class="watch-overlay-meta">
         <p class="watch-overlay-title">Watch together</p>

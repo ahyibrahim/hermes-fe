@@ -4,6 +4,7 @@
   import Avatar from '$lib/components/Avatar.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
+  import { backdrop, drawer, popup, soft } from '$lib/motion';
 
   let {
     roomLabel,
@@ -115,7 +116,7 @@
   }
 </script>
 
-<div class="call-drawer" class:open={expanded}>
+<div class="call-drawer" class:open={expanded} transition:drawer>
   <div class="call-drawer-inner">
     <div class="call-strip">
       <div class="call-main">
@@ -169,7 +170,7 @@
     </div>
 
     {#if showSettings}
-      <div class="call-settings" role="region" aria-label="Call settings">
+      <div class="call-settings" role="region" aria-label="Call settings" transition:soft>
         <p class="call-settings-title">Call settings</p>
         {#if mics.length > 0}
           <div class="call-mic-pick">
@@ -185,7 +186,7 @@
               <span class="call-input-label">{inputLabel}</span>
             </button>
             {#if showMicPicker}
-              <div class="call-mic-popup" role="listbox" aria-label="Input device">
+              <div class="call-mic-popup" role="listbox" aria-label="Input device" transition:popup>
                 {#each mics as mic (mic.deviceId)}
                   <button
                     type="button"
@@ -208,7 +209,7 @@
     {/if}
 
     {#if expanded}
-      <div class="call-panel" role="region" aria-label="Call details">
+      <div class="call-panel" role="region" aria-label="Call details" transition:soft>
         <ul class="call-avatars">
           {#each peers as peer (peer.username)}
             {@const person = lookup(peer.username)}
@@ -248,6 +249,7 @@
     type="button"
     class="call-share-expand"
     aria-label="Close screen share"
+    transition:backdrop
     onclick={() => (lightbox = false)}
   >
     <video use:bindStream={preview} autoplay playsinline muted={sharingSelf}></video>

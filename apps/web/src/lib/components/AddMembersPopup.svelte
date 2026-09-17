@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PublicUser } from '@hermes/core';
   import UserRow from '$lib/components/UserRow.svelte';
+  import { popup } from '$lib/motion';
 
   let {
     candidates,
@@ -21,7 +22,7 @@
   } = $props();
 </script>
 
-<div class="add-popup" class:nested role="dialog" aria-label="Add people">
+<div class="add-popup" class:nested role="dialog" aria-label="Add people" transition:popup>
   <ul class="user-list">
     {#each candidates as person (person.id)}
       <li>
