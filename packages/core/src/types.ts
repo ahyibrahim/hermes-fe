@@ -100,6 +100,18 @@ export interface IceConfig {
   iceServers: IceServer[];
 }
 
+export interface LinkPreview {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  site: string | null;
+  favicon?: string | null;
+  author?: string | null;
+  authorUrl?: string | null;
+  durationSeconds?: number | null;
+}
+
 export interface SessionDescriptionPayload {
   type: 'offer' | 'answer' | 'pranswer' | 'rollback';
   sdp?: string;

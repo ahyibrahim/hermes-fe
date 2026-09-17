@@ -2,6 +2,7 @@
   import type { MessageRecord, PublicUser } from '@hermes/core';
   import IconButton from '$lib/components/IconButton.svelte';
   import ImagePreview from '$lib/components/ImagePreview.svelte';
+  import MdPreview from '$lib/components/MdPreview.svelte';
   import MessageBody from '$lib/components/MessageBody.svelte';
 
   let {
@@ -24,6 +25,8 @@
 
   const deleted = $derived(Boolean(message.deleted_at));
   const hasFile = $derived(!deleted && message.file_id != null && message.file_id !== '');
+  const fileName = $derived(message.content || `file ${message.file_id}`);
+  const isMarkdown = $derived(/\.(md|markdown)$/i.test(fileName));
 </script>
 
 <div class="msg-item" class:own class:can-delete={canDelete}>
@@ -36,11 +39,19 @@
       </div>
     {/if}
     {#if hasFile && message.file_id != null && message.file_id !== ''}
-      <ImagePreview
-        fileId={message.file_id}
-        name={message.content || `file ${message.file_id}`}
-        onDownload={() => onDownload(message)}
-      />
+      {#if isMarkdown}
+        <MdPreview
+          fileId={message.file_id}
+          name={fileName}
+          onDownload={() => onDownload(message)}
+        />
+      {:else}
+        <ImagePreview
+          fileId={message.file_id}
+          name={fileName}
+          onDownload={() => onDownload(message)}
+        />
+      {/if}
     {/if}
     {#if canDelete}
       <span class="unsend">
