@@ -1287,6 +1287,8 @@ button {
   align-items: start;
   width: 100%;
   max-width: 100%;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 4.5rem;
 }
 
 .msg-cluster.continued {
@@ -1358,6 +1360,10 @@ button {
 }
 
 .msg-item + .msg-item {
+  margin-top: 0.28rem;
+}
+
+.msg-item-slot + .msg-item-slot {
   margin-top: 0.28rem;
 }
 
@@ -2648,6 +2654,10 @@ a.yt-preview-author:hover {
 }
 
 .msg-item {
+  position: relative;
+}
+
+.msg-item-slot {
   position: relative;
 }
 

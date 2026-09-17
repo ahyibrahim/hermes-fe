@@ -4,12 +4,14 @@
   import ImagePreview from '$lib/components/ImagePreview.svelte';
   import MdPreview from '$lib/components/MdPreview.svelte';
   import MessageBody from '$lib/components/MessageBody.svelte';
+  import { msgEnter, soft } from '$lib/motion';
 
   let {
     message,
     users,
     own,
     canDelete = own,
+    animateEnter = false,
     onDownload,
     onUnsend,
     onWatchTogether,
@@ -18,6 +20,8 @@
     users: PublicUser[];
     own: boolean;
     canDelete?: boolean;
+    /** Live append only — never true for room-history remounts. */
+    animateEnter?: boolean;
     onDownload: (message: MessageRecord) => void;
     onUnsend: (message: MessageRecord) => void;
     onWatchTogether?: (url: string) => void;
@@ -29,29 +33,36 @@
   const isMarkdown = $derived(/\.(md|markdown)$/i.test(fileName));
 </script>
 
-<div class="msg-item" class:own class:can-delete={canDelete}>
+<div
+  class="msg-item"
+  class:own
+  class:can-delete={canDelete}
+  in:msgEnter={{ enabled: animateEnter, own }}
+>
   {#if deleted}
-    <div class="msg-item-body tombstone">Message deleted</div>
+    <div class="msg-item-body tombstone" in:soft|local>Message deleted</div>
   {:else}
     {#if !hasFile}
-      <div class="msg-item-body">
+      <div class="msg-item-body" out:soft|local>
         <MessageBody content={message.content} {users} {onWatchTogether} />
       </div>
     {/if}
     {#if hasFile && message.file_id != null && message.file_id !== ''}
-      {#if isMarkdown}
-        <MdPreview
-          fileId={message.file_id}
-          name={fileName}
-          onDownload={() => onDownload(message)}
-        />
-      {:else}
-        <ImagePreview
-          fileId={message.file_id}
-          name={fileName}
-          onDownload={() => onDownload(message)}
-        />
-      {/if}
+      <div class="msg-item-file" out:soft|local>
+        {#if isMarkdown}
+          <MdPreview
+            fileId={message.file_id}
+            name={fileName}
+            onDownload={() => onDownload(message)}
+          />
+        {:else}
+          <ImagePreview
+            fileId={message.file_id}
+            name={fileName}
+            onDownload={() => onDownload(message)}
+          />
+        {/if}
+      </div>
     {/if}
     {#if canDelete}
       <span class="unsend">

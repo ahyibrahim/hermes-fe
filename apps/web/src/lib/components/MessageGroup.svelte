@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { MessageRecord, PublicUser } from '@hermes/core';
+  import { flip } from 'svelte/animate';
   import MessageItem from '$lib/components/MessageItem.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
+  import { motionMs, prefersReducedMotion } from '$lib/motion';
   import { colorClass, formatMessageTime } from '$lib/ui';
 
   let {
@@ -11,6 +13,7 @@
     showName,
     ownName,
     isAdmin = false,
+    shouldAnimateEnter = () => false,
     onDownload,
     onUnsend,
     onResetPassword,
@@ -23,6 +26,7 @@
     showName: boolean;
     ownName: string | null;
     isAdmin?: boolean;
+    shouldAnimateEnter?: (id: number) => boolean;
     onDownload: (message: MessageRecord) => void;
     onUnsend: (message: MessageRecord) => void;
     onResetPassword?: (user: PublicUser) => void;
@@ -31,6 +35,7 @@
   } = $props();
 
   const first = $derived(messages[0]);
+  const flipMs = $derived(prefersReducedMotion() ? 0 : motionMs.base);
 </script>
 
 {#if first}
@@ -67,15 +72,18 @@
     <div class="msg-group">
       <time datetime={first.created_at}>{formatMessageTime(first.created_at)}</time>
       {#each messages as message (message.id)}
-        <MessageItem
-          {message}
-          {users}
-          own={ownName === message.sender}
-          canDelete={ownName === message.sender || isAdmin}
-          {onDownload}
-          {onUnsend}
-          {onWatchTogether}
-        />
+        <div class="msg-item-slot" animate:flip={{ duration: flipMs }}>
+          <MessageItem
+            {message}
+            {users}
+            own={ownName === message.sender}
+            canDelete={ownName === message.sender || isAdmin}
+            animateEnter={shouldAnimateEnter(message.id)}
+            {onDownload}
+            {onUnsend}
+            {onWatchTogether}
+          />
+        </div>
       {/each}
     </div>
   </section>

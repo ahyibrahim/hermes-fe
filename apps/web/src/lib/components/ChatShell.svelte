@@ -68,6 +68,9 @@
   let stickToBottom = $state(true);
   let showJump = $state(false);
   let ignoreScroll = false;
+  let pinScrollTimer: ReturnType<typeof setTimeout> | null = null;
+  /** IDs allowed to play enter motion — live appends only, never room-history remounts. */
+  const liveEnterIds = new Set<number>();
   let roomsCollapsed = $state(false);
   let peopleCollapsed = $state(false);
   let phoneViewport = $state(false);
@@ -381,13 +384,32 @@
     if (pendingRoom) {
       return;
     }
+    liveEnterIds.clear();
     displayMessages = [...state.messages];
   }
 
   function clearDisplayTranscript(): void {
     pendingRoom = null;
     transcriptPhase = 'idle';
+    liveEnterIds.clear();
     displayMessages = [];
+  }
+
+  function markLiveEnter(id: number): void {
+    liveEnterIds.add(id);
+  }
+
+  function pruneLiveEnterIds(messages: MessageRecord[]): void {
+    const keep = new Set(messages.map((message) => message.id));
+    for (const id of liveEnterIds) {
+      if (!keep.has(id)) {
+        liveEnterIds.delete(id);
+      }
+    }
+  }
+
+  function shouldAnimateEnter(id: number): boolean {
+    return liveEnterIds.has(id);
   }
 
   function sleep(ms: number): Promise<void> {
@@ -411,9 +433,10 @@
     pendingRoom = null;
     stickToBottom = true;
     showJump = false;
+    liveEnterIds.clear();
     transcriptPhase = 'entering';
     await tick();
-    pinToLatest();
+    pinToLatest('auto');
     await sleep(inMs);
     if (gen === roomSwitchGen && transcriptPhase === 'entering') {
       transcriptPhase = 'idle';
@@ -573,11 +596,35 @@
     }
   }
 
-  function pinToLatest(): void {
+  function pinToLatest(behavior: ScrollBehavior = 'auto'): void {
     if (!scroller || !stickToBottom) {
       return;
     }
     ignoreScroll = true;
+    if (pinScrollTimer) {
+      clearTimeout(pinScrollTimer);
+      pinScrollTimer = null;
+    }
+
+    const finish = (): void => {
+      ignoreScroll = false;
+      showJump = false;
+      pinScrollTimer = null;
+    };
+
+    const useSmooth = behavior === 'smooth' && !prefersReducedMotion();
+    if (useSmooth) {
+      const apply = (): void => {
+        if (scroller && stickToBottom) {
+          scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+        }
+      };
+      apply();
+      requestAnimationFrame(apply);
+      pinScrollTimer = setTimeout(finish, motionMs.slow + 80);
+      return;
+    }
+
     const apply = (): void => {
       if (scroller && stickToBottom) {
         scroller.scrollTop = scroller.scrollHeight;
@@ -588,8 +635,7 @@
       apply();
       requestAnimationFrame(() => {
         apply();
-        ignoreScroll = false;
-        showJump = false;
+        finish();
       });
     });
   }
@@ -597,7 +643,7 @@
   function jumpToLatest(): void {
     stickToBottom = true;
     showJump = false;
-    pinToLatest();
+    pinToLatest('smooth');
     void markFocusedRead();
   }
 
@@ -1079,6 +1125,8 @@
       if (currentRoom) {
         clearDraft(currentRoom);
       }
+      stickToBottom = true;
+      showJump = false;
       growComposer();
       unlockSfx();
       playSfx('send');
@@ -1160,7 +1208,9 @@
       return;
     }
     if (stickToBottom) {
-      void tick().then(pinToLatest);
+      const behavior: ScrollBehavior =
+        transcriptPhase === 'idle' ? 'smooth' : 'auto';
+      void tick().then(() => pinToLatest(behavior));
     } else {
       showJump = true;
     }
@@ -1177,7 +1227,7 @@
     }
     const ro = new ResizeObserver(() => {
       if (stickToBottom) {
-        pinToLatest();
+        pinToLatest('auto');
       }
     });
     ro.observe(inner);
@@ -1243,6 +1293,7 @@
         syncMetaFromSession();
         // selectRoom owns the dual-buffer commit while a switch is pending.
         if (!pendingRoom) {
+          liveEnterIds.clear();
           displayMessages = [...session.getState().messages];
         }
         if (currentRoom) {
@@ -1252,7 +1303,9 @@
       session.on('message', (message) => {
         syncMetaFromSession();
         if (!pendingRoom) {
+          markLiveEnter(message.id);
           displayMessages = [...session.getState().messages];
+          pruneLiveEnterIds(displayMessages);
         }
         if (message.sender && (!message.room || message.room === currentRoom)) {
           typingUsers = typingUsers.filter((name) => name !== message.sender);
@@ -1826,6 +1879,7 @@
                 showName={row.group.showName}
                 ownName={username}
                 isAdmin={me?.role === 'admin'}
+                {shouldAnimateEnter}
                 {onDownload}
                 onUnsend={unsend}
                 onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}

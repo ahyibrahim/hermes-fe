@@ -82,3 +82,32 @@ export function drawer(node: Element, params?: FlyParams): TransitionConfig {
     ...params
   });
 }
+
+export type MsgEnterParams = {
+  /** When false, intro is a no-op (room history / bulk mounts). */
+  enabled?: boolean;
+  /** Outgoing: rise from composer; incoming: short rise/fade. */
+  own?: boolean;
+};
+
+/** Live message row enter — gated by `enabled` for density. */
+export function msgEnter(node: Element, params?: MsgEnterParams): TransitionConfig {
+  if (!params?.enabled) {
+    return { duration: 0 };
+  }
+  if (prefersReducedMotion()) {
+    return fade(node, { duration: duration(motionMs.fast) });
+  }
+  if (params.own) {
+    return fly(node, {
+      y: 20,
+      duration: duration(motionMs.base),
+      easing: cubicOut
+    });
+  }
+  return fly(node, {
+    y: 8,
+    duration: duration(motionMs.fast),
+    easing: cubicOut
+  });
+}
