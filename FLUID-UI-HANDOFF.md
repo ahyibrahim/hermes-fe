@@ -28,7 +28,7 @@ Local commits only until milestone ships. No push unless user approves.
 | A — motion tokens, overlay enter/exit, rail slide | **done** (soaked) | `fluid-a: add motion tokens, overlay enter/exit, and rail slide` |
 | B — room-switch dual-buffer | **next** | See below |
 | C — message physics + scroll | pending | |
-| D — async settle + composer | pending | |
+| D — async settle + composer + **call invite toast** | pending | Redesign ugly incoming-call banner + stronger motion |
 | E — auth/profile VT + **phone rail overlay** | pending | Must fix phone letter-stack crush (parked from A soak) |
 
 ## Next chat starter (Release B)
@@ -54,9 +54,10 @@ Paste something like:
 - Message list / `MessageGroup` as needed
 - Reuse `apps/web/src/lib/motion.ts` + tokens from A
 
-## Known follow-ups (for E)
+## Known follow-ups (for later releases)
 
-- **Phone rail crush:** Expanding rooms/people under `PHONE_MAX_WIDTH_MQ` still uses desktop 3-column grid → chat crushed to letter-stacked text. Fix: overlay/full-bleed drawer over chat (do not shrink center). Documented in plan Release E.
+- **E — Phone rail crush:** Expanding rooms/people under `PHONE_MAX_WIDTH_MQ` still uses desktop 3-column grid → chat crushed to letter-stacked text. Fix: overlay/full-bleed drawer over chat (do not shrink center). Documented in plan Release E.
+- **D — Call invite toast:** Incoming-call banner (DM/group when someone else starts a call) is plain and ugly. Redesign as compact invite (avatar, title, Join/dismiss) + stronger enter/exit/pulse on top of A’s `transition:toast`. Documented in plan Release D.
 
 ## A notes (done)
 
