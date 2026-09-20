@@ -13,7 +13,7 @@
   import UserChip from '$lib/components/UserChip.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
   import WatchOverlay from '$lib/components/WatchOverlay.svelte';
-  import { motionMs, prefersReducedMotion, soft, toast } from '$lib/motion';
+  import { backdrop, motionMs, prefersReducedMotion, soft, toast } from '$lib/motion';
   import {
     clearDraft,
     formatUnread,
@@ -55,6 +55,9 @@
   let typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
   let newRoomName = $state('');
   let pendingFile = $state<File | null>(null);
+  let pendingFileUrl = $state<string | null>(null);
+  let draggingFile = $state(false);
+  let dragDepth = 0;
   let sending = $state(false);
   let creatingRoom = $state(false);
   let showCreateRoom = $state(false);
@@ -750,6 +753,10 @@
     if (!slug) {
       return;
     }
+    if (phoneViewport) {
+      roomsCollapsed = true;
+      peopleCollapsed = true;
+    }
     banner = '';
     stickToBottom = true;
     showJump = false;
@@ -1120,6 +1127,88 @@
     }
     pendingFile = file;
   }
+
+  $effect(() => {
+    if (pendingFile && pendingFile.type.startsWith('image/')) {
+      const url = URL.createObjectURL(pendingFile);
+      pendingFileUrl = url;
+      return () => {
+        URL.revokeObjectURL(url);
+        pendingFileUrl = null;
+      };
+    } else {
+      pendingFileUrl = null;
+    }
+  });
+
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function fileBadgeLabel(name: string): string {
+    const ext = name.split('.').pop()?.toUpperCase();
+    return ext && ext.length <= 4 ? ext : 'FILE';
+  }
+
+  function isFileDrag(event: DragEvent): boolean {
+    if (!event.dataTransfer?.types) {
+      return false;
+    }
+    return Array.from(event.dataTransfer.types).includes('Files');
+  }
+
+  function onChatDragEnter(event: DragEvent): void {
+    if (!isFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    dragDepth++;
+    draggingFile = true;
+  }
+
+  function onChatDragOver(event: DragEvent): void {
+    if (!isFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  function onChatDragLeave(event: DragEvent): void {
+    if (!isFileDrag(event)) {
+      return;
+    }
+    dragDepth--;
+    if (dragDepth <= 0) {
+      dragDepth = 0;
+      draggingFile = false;
+    }
+  }
+
+  function onChatDrop(event: DragEvent): void {
+    if (!isFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    dragDepth = 0;
+    draggingFile = false;
+    const file = event.dataTransfer?.files?.[0];
+    if (file) {
+      takePendingFile(file);
+    }
+  }
+
+  const handleWatchTogether = (url: string) => {
+    void onWatchTogether(url);
+  };
 
   async function send(): Promise<void> {
     const text = draft.trim();
@@ -1592,6 +1681,18 @@
   class:rooms-collapsed={roomsCollapsed}
   class:people-collapsed={peopleCollapsed}
 >
+  {#if phoneViewport && (!roomsCollapsed || !peopleCollapsed)}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="rail-drawer-backdrop"
+      role="presentation"
+      transition:backdrop
+      onclick={() => {
+        roomsCollapsed = true;
+        peopleCollapsed = true;
+      }}
+    ></div>
+  {/if}
   <aside class="rail rooms-rail">
     <div class="rail-heading">
       <button
@@ -1722,7 +1823,22 @@
     {/if}
   </aside>
 
-  <section class="center">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <section
+    class="center"
+    ondragenter={onChatDragEnter}
+    ondragover={onChatDragOver}
+    ondragleave={onChatDragLeave}
+    ondrop={onChatDrop}
+  >
+    {#if draggingFile}
+      <div class="chat-drop-overlay" transition:soft>
+        <div class="chat-drop-card">
+          <IconGlyph name="attach" size={28} />
+          <span>Drop file to attach</span>
+        </div>
+      </div>
+    {/if}
     <header class="top-bar">
       <div class="top-bar-lead" bind:this={roomMenuWrap}>
         {#if roomMenuOpen}
@@ -1912,7 +2028,7 @@
                 onUnsend={unsend}
                 onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
                 onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
-                onWatchTogether={(url) => void onWatchTogether(url)}
+                onWatchTogether={handleWatchTogether}
               />
             {/if}
           {/each}
@@ -1937,6 +2053,31 @@
       {/if}
     </div>
 
+    {#if pendingFile}
+      <div class="composer-attachment-strip" transition:soft>
+        <div class="attach-preview-chip">
+          {#if pendingFileUrl}
+            <img class="attach-thumb" src={pendingFileUrl} alt="" />
+          {:else}
+            <span class="attach-badge">{fileBadgeLabel(pendingFile.name)}</span>
+          {/if}
+          <div class="attach-meta">
+            <span class="attach-name" title={pendingFile.name}>{pendingFile.name}</span>
+            <span class="attach-size">{formatFileSize(pendingFile.size)}</span>
+          </div>
+          <button
+            type="button"
+            class="attach-remove-btn"
+            onclick={clearPendingFile}
+            aria-label="Remove attachment"
+            title="Remove file"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    {/if}
+
     <form
       class="composer"
       class:conn-soft={status !== 'open'}
@@ -1957,12 +2098,6 @@
         >
           <IconGlyph name="attach" />
         </IconButton>
-        {#if pendingFile}
-          <span class="attach-chip">
-            <span class="attach-chip-name">{pendingFile.name}</span>
-            <button type="button" class="row-x" onclick={clearPendingFile} title="Remove file">×</button>
-          </span>
-        {/if}
       </div>
       <textarea
         rows="1"

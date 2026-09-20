@@ -6,7 +6,7 @@
   import Avatar from '$lib/components/Avatar.svelte';
   import { forgetAvatar } from '$lib/ui';
   import { getSession, signOut } from '$lib/client';
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
 
   let checking = $state(true);
   let profile = $state<PublicUser | null>(null);
@@ -46,7 +46,20 @@
     return true;
   }
 
+  function onBackgroundClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      void goto('/');
+    }
+  }
+
+  function onKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      void goto('/');
+    }
+  }
+
   onMount(async () => {
+    window.addEventListener('keydown', onKey);
     try {
       if (!(await loadProfile())) {
         await goto('/login');
@@ -57,6 +70,12 @@
       return;
     }
     checking = false;
+  });
+
+  onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', onKey);
+    }
   });
 
   async function onChangePassword(event: Event): Promise<void> {
@@ -135,7 +154,8 @@
 {#if checking}
   <p class="boot">Loading…</p>
 {:else if profile}
-  <div class="auth-page">
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="auth-page" role="presentation" onclick={onBackgroundClick}>
     <form class="auth-card profile-card" onsubmit={onChangePassword}>
       <p class="alt back"><a href="/">Back to chat</a></p>
       <h1>Profile</h1>

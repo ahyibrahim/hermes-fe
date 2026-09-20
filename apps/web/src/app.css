@@ -1030,15 +1030,24 @@ button {
   cursor: zoom-in;
 }
 
-.call-share-frame video,
-.call-share-expand video,
-.call-share-expand img {
+.call-share-frame video {
   display: block;
   width: 100%;
   max-height: min(36vh, 22rem);
   object-fit: contain;
   background: #111;
   border-radius: 0.4rem;
+}
+
+.call-share-expand video,
+.call-share-expand img {
+  display: block;
+  max-width: 96vw;
+  max-height: 92vh;
+  width: auto;
+  object-fit: contain;
+  border-radius: 0.4rem;
+  cursor: default;
 }
 
 .call-share-expand {
@@ -1052,14 +1061,6 @@ button {
   border: 0;
   background: rgba(0, 0, 0, 0.82);
   cursor: zoom-out;
-}
-
-.call-share-expand video,
-.call-share-expand img {
-  max-width: 96vw;
-  max-height: 92vh;
-  width: auto;
-  cursor: default;
 }
 
 @media (max-width: 48rem) {
@@ -1697,6 +1698,23 @@ button {
   .user-color-slate { --user-color: #94a3b8; }
 }
 
+.auth-brand {
+  view-transition-name: auth-brand;
+}
+
+.auth-card,
+.profile-card {
+  view-transition-name: auth-card;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 80ms !important;
+  }
+}
+
 .shell.rooms-collapsed {
   grid-template-columns: 2.5rem minmax(0, 1fr) 14rem;
 }
@@ -1707,6 +1725,51 @@ button {
 
 .shell.rooms-collapsed.people-collapsed {
   grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem;
+}
+
+@media (max-width: 47.99rem) {
+  .shell,
+  .shell.rooms-collapsed,
+  .shell.people-collapsed,
+  .shell.rooms-collapsed.people-collapsed {
+    position: relative;
+    grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem !important;
+    transition: none;
+  }
+
+  /* Full-bleed overlay drawer for rooms rail when expanded on mobile */
+  .shell:not(.rooms-collapsed) .rooms-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 25;
+    width: min(18rem, 85vw);
+    background: var(--bg-rail);
+    box-shadow: var(--shadow);
+    border-right: 1px solid var(--border);
+  }
+
+  /* Full-bleed overlay drawer for people rail when expanded on mobile */
+  .shell:not(.people-collapsed) .rail.people {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    z-index: 25;
+    width: min(18rem, 85vw);
+    background: var(--bg-rail);
+    box-shadow: var(--shadow);
+    border-left: 1px solid var(--border);
+  }
+
+  .rail-drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 22;
+    background: color-mix(in srgb, #000 45%, transparent);
+    backdrop-filter: blur(2px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1934,12 +1997,9 @@ button {
 }
 
 .hover-card {
-  position: absolute;
-  z-index: 20;
-  top: 100%;
-  left: 0;
-  /* Transparent bridge so the pointer can travel from the chip without closing. */
-  padding-top: 0.35rem;
+  position: fixed;
+  z-index: 50;
+  padding: 0;
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -2784,6 +2844,119 @@ a.yt-preview-author:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  backdrop-filter: blur(4px);
+  border: 2px dashed var(--accent);
+  border-radius: 0.5rem;
+  margin: 0.5rem;
+  pointer-events: none;
+}
+
+.chat-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 2rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.composer-attachment-strip {
+  padding: 0.25rem 0.75rem 0.4rem;
+  display: flex;
+  align-items: center;
+}
+
+.attach-preview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: min(22rem, 100%);
+  padding: 0.35rem 0.55rem 0.35rem 0.45rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  box-shadow: var(--shadow);
+}
+
+.attach-thumb {
+  width: 2.2rem;
+  height: 2.2rem;
+  object-fit: cover;
+  border-radius: 0.35rem;
+  flex-shrink: 0;
+  background: var(--bg-hover);
+}
+
+.attach-badge {
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-panel));
+  color: var(--accent);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.attach-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.05rem;
+}
+
+.attach-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-size {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.attach-remove-btn {
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  margin-left: 0.3rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.attach-remove-btn:hover {
+  background: color-mix(in srgb, var(--danger) 15%, var(--bg-hover));
+  color: var(--danger);
 }
 
 .call-toast {
