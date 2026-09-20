@@ -2,12 +2,14 @@
   import type { LinkPreview } from '@hermes/core';
   import { getSession } from '$lib/client';
   import { soft } from '$lib/motion';
+  import { getCachedLinkPreview, loadLinkPreview } from '$lib/ui';
   import { untrack } from 'svelte';
 
   let { url }: { url: string } = $props();
 
-  let preview = $state<LinkPreview | null>(null);
-  let loading = $state(true);
+  const initialCached = getCachedLinkPreview(url);
+  let preview = $state<LinkPreview | null>(initialCached ?? null);
+  let loading = $state(initialCached === undefined);
   let imageFailed = $state(false);
   let faviconFailed = $state(false);
   let imageReady = $state(false);
@@ -18,16 +20,21 @@
 
   $effect(() => {
     const target = url;
+    const cached = getCachedLinkPreview(target);
     untrack(() => {
-      preview = null;
-      loading = true;
+      if (cached !== undefined) {
+        preview = cached;
+        loading = false;
+      } else {
+        preview = null;
+        loading = true;
+      }
       imageFailed = false;
       faviconFailed = false;
       imageReady = false;
     });
     let cancelled = false;
-    void getSession()
-      .getLinkPreview(target)
+    void loadLinkPreview(getSession(), target)
       .then((result) => {
         if (!cancelled) {
           preview = result;

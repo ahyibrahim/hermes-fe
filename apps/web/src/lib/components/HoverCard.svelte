@@ -3,7 +3,7 @@
   import type { Snippet } from 'svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import { popup } from '$lib/motion';
-  import { colorClass } from '$lib/ui';
+  import { colorClass, portal } from '$lib/ui';
   import { onDestroy, onMount } from 'svelte';
 
   let {
@@ -22,11 +22,36 @@
   let canHover = $state(true);
   let nestedAction = $state(false);
   let wrap: HTMLSpanElement | undefined = $state();
+  let cardEl: HTMLDivElement | undefined = $state();
+  let cardTop = $state(0);
+  let cardLeft = $state(0);
   let showTimer: ReturnType<typeof setTimeout> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
 
   const tapToOpen = $derived(!canHover && !nestedAction);
   const showAdminActions = $derived(Boolean((onResetPassword || onSetRole) && !user.system));
+
+  function updatePosition(): void {
+    if (!wrap || typeof window === 'undefined') {
+      return;
+    }
+    const rect = wrap.getBoundingClientRect();
+    const cardWidth = 230;
+    const cardHeight = 110;
+    let top = rect.bottom + 4;
+    let left = rect.left;
+    if (top + cardHeight > window.innerHeight && rect.top - cardHeight - 4 > 0) {
+      top = rect.top - cardHeight - 4;
+    }
+    if (left + cardWidth > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - cardWidth - 8);
+    }
+    if (left < 8) {
+      left = 8;
+    }
+    cardTop = top;
+    cardLeft = left;
+  }
 
   function clearTimers(): void {
     clearTimeout(showTimer);
@@ -43,6 +68,7 @@
     }
     clearTimers();
     showTimer = setTimeout(() => {
+      updatePosition();
       open = true;
     }, 220);
   }
@@ -51,8 +77,8 @@
     if (!canHover) {
       return;
     }
-    clearTimeout(showTimer);
-    clearTimeout(hideTimer);
+    clearTimers();
+    showTimer = undefined;
     hideTimer = setTimeout(() => {
       open = false;
     }, delayMs);
@@ -60,10 +86,11 @@
 
   function cancelHide(): void {
     clearTimeout(hideTimer);
+    hideTimer = undefined;
   }
 
   function stillInside(next: EventTarget | null): boolean {
-    return Boolean(next instanceof Node && wrap?.contains(next));
+    return Boolean(next instanceof Node && (wrap?.contains(next) || cardEl?.contains(next)));
   }
 
   function toggleTap(event: MouseEvent): void {
@@ -72,14 +99,19 @@
     }
     event.preventDefault();
     event.stopPropagation();
-    open = !open;
+    if (!open) {
+      updatePosition();
+      open = true;
+    } else {
+      open = false;
+    }
   }
 
   function onDocPointer(event: PointerEvent): void {
-    if (!tapToOpen || !open || !wrap) {
+    if (!tapToOpen || !open) {
       return;
     }
-    if (event.target instanceof Node && wrap.contains(event.target)) {
+    if (event.target instanceof Node && (wrap?.contains(event.target) || cardEl?.contains(event.target))) {
       return;
     }
     open = false;
@@ -90,11 +122,20 @@
     nestedAction = Boolean(wrap?.parentElement?.closest('button, a'));
     const media = window.matchMedia('(hover: hover)');
     const onChange = (): void => syncHover();
+    const onScrollOrResize = (): void => {
+      if (open) {
+        updatePosition();
+      }
+    };
     media.addEventListener('change', onChange);
     document.addEventListener('pointerdown', onDocPointer);
+    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
     return () => {
       media.removeEventListener('change', onChange);
       document.removeEventListener('pointerdown', onDocPointer);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
     };
   });
 
@@ -132,7 +173,19 @@
     <!-- stop row-level DM click when interacting with the card -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="hover-card" role="tooltip" transition:popup onclick={(event) => event.stopPropagation()}>
+    <div
+      bind:this={cardEl}
+      class="hover-card"
+      style="top: {cardTop}px; left: {cardLeft}px;"
+      role="tooltip"
+      use:portal
+      transition:popup
+      onmouseenter={() => {
+        cancelHide();
+      }}
+      onmouseleave={() => hide()}
+      onclick={(event) => event.stopPropagation()}
+    >
       <div class="hover-card-inner">
         <Avatar {user} size="lg" />
         <div class="hover-meta">

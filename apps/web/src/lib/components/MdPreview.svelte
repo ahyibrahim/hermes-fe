@@ -4,6 +4,7 @@
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import { backdrop, panel } from '$lib/motion';
+  import { portal } from '$lib/ui';
 
   const MAX_PREVIEW_BYTES = 200 * 1024;
 
@@ -132,6 +133,7 @@
   <div
     class="md-expand-backdrop"
     role="presentation"
+    use:portal
     transition:backdrop
     onclick={() => (expanded = false)}
   >

@@ -1,8 +1,52 @@
-import { formatTranscriptTimestamp, type PublicUser, type SessionController } from '@hermes/core';
+import { formatTranscriptTimestamp, type LinkPreview, type PublicUser, type SessionController } from '@hermes/core';
 
 type CacheEntry = { url: string | null; inflight?: Promise<string | null> };
 
 const cache = new Map<number, CacheEntry>();
+const linkPreviewCache = new Map<string, LinkPreview | null>();
+const linkPreviewInflight = new Map<string, Promise<LinkPreview | null>>();
+
+export function getCachedLinkPreview(url: string): LinkPreview | null | undefined {
+  return linkPreviewCache.get(url);
+}
+
+export async function loadLinkPreview(
+  session: SessionController,
+  url: string
+): Promise<LinkPreview | null> {
+  if (linkPreviewCache.has(url)) {
+    return linkPreviewCache.get(url) ?? null;
+  }
+  const inflight = linkPreviewInflight.get(url);
+  if (inflight) {
+    return inflight;
+  }
+  const promise = (async () => {
+    try {
+      const res = await session.getLinkPreview(url);
+      linkPreviewCache.set(url, res);
+      return res;
+    } catch {
+      linkPreviewCache.set(url, null);
+      return null;
+    } finally {
+      linkPreviewInflight.delete(url);
+    }
+  })();
+  linkPreviewInflight.set(url, promise);
+  return promise;
+}
+
+export function portal(node: HTMLElement, target: HTMLElement = document.body) {
+  target.appendChild(node);
+  return {
+    destroy() {
+      if (node.parentNode) {
+        node.parentNode.removeChild(node);
+      }
+    },
+  };
+}
 
 export function forgetAvatar(userId: number): void {
   const entry = cache.get(userId);

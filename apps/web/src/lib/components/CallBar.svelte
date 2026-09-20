@@ -5,6 +5,7 @@
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import { backdrop, drawer, popup, soft } from '$lib/motion';
+  import { portal } from '$lib/ui';
 
   let {
     roomLabel,
@@ -249,6 +250,7 @@
     type="button"
     class="call-share-expand"
     aria-label="Close screen share"
+    use:portal
     transition:backdrop
     onclick={() => (lightbox = false)}
   >

@@ -4,6 +4,7 @@
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import { backdrop, soft } from '$lib/motion';
+  import { portal } from '$lib/ui';
 
   let {
     fileId,
@@ -49,7 +50,12 @@
     }
     const onKey = (event: KeyboardEvent) => closeExpand(event);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
   });
 
   $effect(() => {
@@ -129,7 +135,14 @@
 </div>
 
 {#if expanded && previewUrl}
-  <button type="button" class="call-share-expand" aria-label="Close image" transition:backdrop onclick={() => (expanded = false)}>
+  <button
+    type="button"
+    class="call-share-expand"
+    aria-label="Close image"
+    use:portal
+    transition:backdrop
+    onclick={() => (expanded = false)}
+  >
     <img src={previewUrl} alt={name} />
   </button>
 {/if}

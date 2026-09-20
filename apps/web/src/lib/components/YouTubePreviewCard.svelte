@@ -3,6 +3,7 @@
   import { parseYouTubeVideoId } from '@hermes/core';
   import { getSession } from '$lib/client';
   import { soft } from '$lib/motion';
+  import { getCachedLinkPreview, loadLinkPreview } from '$lib/ui';
   import { untrack } from 'svelte';
 
   let {
@@ -18,8 +19,9 @@
     videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null
   );
 
-  let preview = $state<LinkPreview | null>(null);
-  let metaLoading = $state(true);
+  const initialCached = getCachedLinkPreview(url);
+  let preview = $state<LinkPreview | null>(initialCached ?? null);
+  let metaLoading = $state(initialCached === undefined);
   let thumbFailed = $state(false);
   let thumbReady = $state(false);
 
@@ -49,15 +51,20 @@
 
   $effect(() => {
     const target = url;
+    const cached = getCachedLinkPreview(target);
     untrack(() => {
-      preview = null;
-      metaLoading = true;
+      if (cached !== undefined) {
+        preview = cached;
+        metaLoading = false;
+      } else {
+        preview = null;
+        metaLoading = true;
+      }
       thumbFailed = false;
       thumbReady = false;
     });
     let cancelled = false;
-    void getSession()
-      .getLinkPreview(target)
+    void loadLinkPreview(getSession(), target)
       .then((result) => {
         if (!cancelled) {
           preview = result;
