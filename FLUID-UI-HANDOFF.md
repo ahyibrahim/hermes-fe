@@ -1,10 +1,10 @@
-# Fluid UI handoff (local milestone tracking)
+# Fluid UI Milestone (v0.24.0 Lock)
 
 Branch: `fluid-ui` (hermes-fe)  
-Plan: `/home/ai/.cursor/plans/fluid_ui_overhaul_9baddf28.plan.md`  
+Release target: **v0.24.0** (locked, ready for preparation)  
 Local commits only until milestone ships. No push unless user approves.
 
-## Throwaway env (keep through E)
+## Throwaway env (testing instance)
 
 - URL: http://127.0.0.1:3001
 - FE build: `/home/ai/Workspace/hermes-fe/apps/web/build`
@@ -21,25 +21,56 @@ Local commits only until milestone ships. No push unless user approves.
   ```
 - After each release: rebuild FE, hard-refresh browser.
 
-## Status
+## Status Summary
 
-| Release | Status | Commit / notes |
-|---------|--------|----------------|
-| A — motion tokens, overlay enter/exit, rail slide | **done** (soaked) | `fluid-a: …` |
-| B — room-switch dual-buffer | **done** (soaked) | `39b506d` `fluid-b: keep transcript visible across room switches` |
-| C — message physics + scroll | **done** (soaked) | `84a12b3` `fluid-c: add message enter physics and smooth scroll pin` |
-| D — async settle + composer + **call invite toast** | **done** (soak) | See below |
-| E — auth/profile VT + **phone rail overlay** | pending | Must fix phone letter-stack crush (parked from A soak) |
+| Release | Status | Scope / Deliverables |
+|---------|--------|----------------------|
+| A — motion tokens, overlay enter/exit, rail slide | **done** (soaked) | Motion tokens, CSS transitions, overlay enter/exit |
+| B — room-switch dual-buffer | **done** (soaked) | Dual-buffered transcript rendering during room switching |
+| C — message physics + scroll | **done** (soaked) | Physics-based message entry animations, smooth scroll pinning |
+| D — async settle + composer + **call invite toast** | **done** (soaked) | Link/media skeleton-to-content settle, composer easing, call invite toast |
+| F — D-soak defect fixes + file transfer UX | **done** (soaked) | Drag-and-drop file target, attachment chip, portal overlays, hover card positioning |
+| E — auth/profile VT + **phone rail overlay** | **done** (soaked) | View Transitions for auth/profile, mobile full-bleed overlay drawers, backdrop dismissal |
 
-## Next chat starter (Release E)
+## Milestone Completion / Release Lock State
 
-Paste something like:
+All planned releases (A through F) are implemented, verified, and locked in package versions (`v0.24.0`). Prepare release branch and GitHub issue hierarchy for merge/deploy.
 
-> Implement **Fluid UI Release E only** on hermes-fe branch `fluid-ui`.  
-> Read `FLUID-UI-HANDOFF.md` and plan `fluid_ui_overhaul_9baddf28`.  
-> Goal: auth/profile view transitions + phone rail overlay (fix letter-stack crush) + mobile drawers.  
-> Commit as `fluid-e: …`. Keep commits local. Rebuild FE for throwaway on :3001 when done.  
-> Throwaway stays on http://127.0.0.1:3001. Handoff + plan are the source of truth for E.
+### E locked approach (implemented)
+
+1. Enabled seamless View Transitions in `routes/+layout.svelte` using `onNavigate` and `document.startViewTransition` when supported.
+2. Attached CSS `view-transition-name` tokens to `.auth-brand`, `.auth-card`, and `.profile-card` in `app.css` to prevent layout thrashing/white flashes during authentication and profile navigation, with reduced motion support.
+3. Fixed mobile chat crushing under `PHONE_MAX_WIDTH_MQ`: `.shell` keeps fixed rail margins without shrinking the center transcript.
+4. Converted mobile expanded rails into full-bleed overlay drawers with z-index elevation, drop shadows, and a click-to-dismiss backdrop scrim (`.rail-drawer-backdrop`) in `ChatShell.svelte` and `app.css`.
+5. Added automatic drawer collapsing on mobile viewports when switching rooms or initiating DMs.
+6. Added outer backdrop click and Escape key dismissal on `/profile`.
+
+### E smoke checklist
+
+- [x] Navigating between Sign in, Register, Password Reset, and Profile displays seamless crossfade / morph transitions without blank page flashes.
+- [x] On mobile viewport (`< 48rem`), expanding the rooms rail slides out an overlay drawer without crushing the center chat into letter-stacked text.
+- [x] Expanding the people rail on mobile slides out an overlay drawer from the right without squeezing the message transcript.
+- [x] Tapping the dimmed backdrop outside an open mobile drawer closes the drawer and restores focus to chat.
+- [x] Selecting a room or starting a DM on mobile automatically collapses the drawer.
+- [x] Clicking the backdrop or pressing Escape on the Profile page returns to chat view.
+
+### F locked approach (implemented)
+
+1. Stabilized callback identity for `onWatchTogether` and added metadata caching in `$lib/ui.ts` to eliminate thumbnail flickering and redundant network requests.
+2. Removed redundant `background: #111` on `.call-share-expand video/img` in `app.css` to fix black box artifacts behind expanded images.
+3. Added `portal` action in `$lib/ui.ts` and attached `use:portal` to `ImagePreview.svelte`, `MdPreview.svelte`, and `CallBar.svelte` to escape mobile ancestor transform containment blocks.
+4. Positioned `HoverCard.svelte` with viewport-relative fixed coordinates and `use:portal` to prevent clipping inside scrollable room/member lists.
+5. Added drag-and-drop file target overlay with dragenter/dragleave counter guards across the chat area.
+6. Added rich attachment preview chip above the composer with live image thumbnail, file-type badge, formatted byte size, and remove button.
+
+### F smoke checklist
+
+- [ ] Watch-Together / YouTube links do not re-fetch metadata or flicker thumbnails on room re-renders.
+- [ ] Expanding attached images displays clean backdrop dimming without black box artifacts.
+- [ ] Expanding images/markdown on mobile viewports fills the entire screen instead of being clipped to the message container.
+- [ ] Hovering or tapping avatars in Room Menu / member list opens hover cards without clipping by `overflow-y: auto`.
+- [ ] Dragging and dropping files anywhere on the chat area displays the drop overlay and stages the file in the composer.
+- [ ] Staged file displays an image thumbnail (for images) or extension badge (for other files) with filename and file size above the composer.
 
 ### D locked approach (implemented)
 

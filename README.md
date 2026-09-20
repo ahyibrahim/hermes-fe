@@ -2,7 +2,7 @@
 
 Clients for **Hermes**, a private messenger for a small group of friends. It runs on the local network and over Tailscale, and talks to the [hermes-be](https://github.com/ahyibrahim/hermes-be) backend (one Node process, Fastify, SQLite).
 
-This repository is an npm workspaces monorepo. v0.18.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA with quiet rails, online presence badges, a collapsible call strip with settings and a corner drawer for peers and share, phone/touch transcript polish, and CC0 share cues).
+This repository is an npm workspaces monorepo. v0.24.0 ships `packages/core` (a browser-safe session library), `apps/cli` (the terminal client), and `apps/web` (a static SvelteKit SPA featuring the Fluid UI overhaul with physics-based message transitions, dual-buffered room switches, async layout stabilization, drag-and-drop file transfers, rich attachment chips, View Transitions, and full-bleed mobile rail overlay drawers).
 
 ## Requirements
 
@@ -185,4 +185,4 @@ npm run dev:web
 
 ## Roadmap
 
-v0.18.0 is rails and call chrome. v0.17.0 was phone/touch plus transcript. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
+v0.24.0 delivers the complete Fluid UI milestone (Releases A–F: motion design tokens, dual-buffered room switching, message entry physics, async layout stabilization, drag-and-drop file transfers, View Transitions, and mobile overlay drawers). v0.23.0 introduced link previews and markdown card previews. The full release plan lives in [hermes-be/docs/ROADMAP.md](https://github.com/ahyibrahim/hermes-be/blob/main/docs/ROADMAP.md).
