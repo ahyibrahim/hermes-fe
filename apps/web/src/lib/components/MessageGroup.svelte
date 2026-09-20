@@ -3,7 +3,7 @@
   import { flip } from 'svelte/animate';
   import MessageItem from '$lib/components/MessageItem.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
-  import { motionMs, prefersReducedMotion } from '$lib/motion';
+  import { msgEnter, motionMs, prefersReducedMotion } from '$lib/motion';
   import { colorClass, formatMessageTime } from '$lib/ui';
 
   let {
@@ -43,6 +43,7 @@
     class="msg-cluster {colorClass(sender?.color)}"
     class:continued={!showName}
     aria-label="Messages from {first.sender}"
+    in:msgEnter|global={{ enabled: shouldAnimateEnter(first.id), own: ownName === first.sender }}
   >
     <div class="msg-cluster-avatar">
       {#if showName && sender}
@@ -71,14 +72,14 @@
     {/if}
     <div class="msg-group">
       <time datetime={first.created_at}>{formatMessageTime(first.created_at)}</time>
-      {#each messages as message (message.id)}
+      {#each messages as message, index (message.id)}
         <div class="msg-item-slot" animate:flip={{ duration: flipMs }}>
           <MessageItem
             {message}
             {users}
             own={ownName === message.sender}
             canDelete={ownName === message.sender || isAdmin}
-            animateEnter={shouldAnimateEnter(message.id)}
+            animateEnter={index > 0 && shouldAnimateEnter(message.id)}
             {onDownload}
             {onUnsend}
             {onWatchTogether}

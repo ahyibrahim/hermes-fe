@@ -24,6 +24,13 @@
   let metaLoading = $state(initialCached === undefined);
   let thumbFailed = $state(false);
   let thumbReady = $state(false);
+  let currentLoadedUrl = $state<string | null>(initialCached !== undefined ? url : null);
+
+  function checkImgReady(node: HTMLImageElement) {
+    if (node.complete && node.naturalWidth > 0) {
+      thumbReady = true;
+    }
+  }
 
   function formatDuration(seconds: number): string {
     const total = Math.max(0, Math.floor(seconds));
@@ -51,15 +58,22 @@
 
   $effect(() => {
     const target = url;
+    if (currentLoadedUrl === target) {
+      return;
+    }
     const cached = getCachedLinkPreview(target);
-    untrack(() => {
-      if (cached !== undefined) {
+    if (cached !== undefined) {
+      untrack(() => {
+        currentLoadedUrl = target;
         preview = cached;
         metaLoading = false;
-      } else {
-        preview = null;
-        metaLoading = true;
-      }
+      });
+      return;
+    }
+    untrack(() => {
+      currentLoadedUrl = null;
+      preview = null;
+      metaLoading = true;
       thumbFailed = false;
       thumbReady = false;
     });
@@ -67,12 +81,14 @@
     void loadLinkPreview(getSession(), target)
       .then((result) => {
         if (!cancelled) {
+          currentLoadedUrl = target;
           preview = result;
           metaLoading = false;
         }
       })
       .catch(() => {
         if (!cancelled) {
+          currentLoadedUrl = target;
           metaLoading = false;
         }
       });
@@ -98,6 +114,7 @@
           src={thumbUrl}
           alt=""
           loading="lazy"
+          use:checkImgReady
           onload={() => (thumbReady = true)}
           onerror={() => (thumbFailed = true)}
         />
@@ -114,6 +131,7 @@
           src={thumbUrl}
           alt=""
           loading="lazy"
+          use:checkImgReady
           onload={() => (thumbReady = true)}
           onerror={() => (thumbFailed = true)}
         />

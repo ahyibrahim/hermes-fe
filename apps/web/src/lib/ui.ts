@@ -2,9 +2,69 @@ import { formatTranscriptTimestamp, type LinkPreview, type PublicUser, type Sess
 
 type CacheEntry = { url: string | null; inflight?: Promise<string | null> };
 
+const MAX_MD_PREVIEW_BYTES = 200 * 1024;
+export type MdPreviewResult = { html: string; truncated: boolean } | null;
+
 const cache = new Map<number, CacheEntry>();
 const linkPreviewCache = new Map<string, LinkPreview | null>();
 const linkPreviewInflight = new Map<string, Promise<LinkPreview | null>>();
+const mdPreviewCache = new Map<string, MdPreviewResult>();
+const mdPreviewInflight = new Map<string, Promise<MdPreviewResult>>();
+
+export function getCachedMdPreview(fileId: string | number): MdPreviewResult | undefined {
+  return mdPreviewCache.get(String(fileId));
+}
+
+export async function loadMdPreview(
+  session: SessionController,
+  fileId: string | number,
+  filename: string
+): Promise<MdPreviewResult> {
+  const id = String(fileId);
+  if (mdPreviewCache.has(id)) {
+    return mdPreviewCache.get(id) ?? null;
+  }
+  const inflight = mdPreviewInflight.get(id);
+  if (inflight) {
+    return inflight;
+  }
+  const promise = (async () => {
+    try {
+      const { bytes, mime } = await session.fetchFile(id);
+      const isMd = (() => {
+        const type = mime.toLowerCase().split(';')[0].trim();
+        if (type === 'text/markdown' || type === 'text/x-markdown') {
+          return true;
+        }
+        return /\.(md|markdown)$/i.test(filename);
+      })();
+      if (!isMd) {
+        mdPreviewCache.set(id, null);
+        return null;
+      }
+      const slice =
+        bytes.byteLength > MAX_MD_PREVIEW_BYTES ? bytes.slice(0, MAX_MD_PREVIEW_BYTES) : bytes;
+      const truncated = bytes.byteLength > MAX_MD_PREVIEW_BYTES;
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+      const [{ marked }, DOMPurifyMod] = await Promise.all([import('marked'), import('dompurify')]);
+      const purify = DOMPurifyMod.default;
+      const rendered = marked.parse(text, { async: false }) as string;
+      const html = purify.sanitize(rendered, {
+        USE_PROFILES: { html: true },
+      });
+      const res: MdPreviewResult = { html, truncated };
+      mdPreviewCache.set(id, res);
+      return res;
+    } catch {
+      mdPreviewCache.set(id, null);
+      return null;
+    } finally {
+      mdPreviewInflight.delete(id);
+    }
+  })();
+  mdPreviewInflight.set(id, promise);
+  return promise;
+}
 
 export function getCachedLinkPreview(url: string): LinkPreview | null | undefined {
   return linkPreviewCache.get(url);

@@ -13,22 +13,36 @@
   let imageFailed = $state(false);
   let faviconFailed = $state(false);
   let imageReady = $state(false);
+  let currentLoadedUrl = $state<string | null>(initialCached !== undefined ? url : null);
 
   const hasCard = $derived(
     Boolean(preview && (preview.title || preview.description || preview.image))
   );
 
+  function checkImgReady(node: HTMLImageElement) {
+    if (node.complete && node.naturalWidth > 0) {
+      imageReady = true;
+    }
+  }
+
   $effect(() => {
     const target = url;
+    if (currentLoadedUrl === target) {
+      return;
+    }
     const cached = getCachedLinkPreview(target);
-    untrack(() => {
-      if (cached !== undefined) {
+    if (cached !== undefined) {
+      untrack(() => {
+        currentLoadedUrl = target;
         preview = cached;
         loading = false;
-      } else {
-        preview = null;
-        loading = true;
-      }
+      });
+      return;
+    }
+    untrack(() => {
+      currentLoadedUrl = null;
+      preview = null;
+      loading = true;
       imageFailed = false;
       faviconFailed = false;
       imageReady = false;
@@ -37,12 +51,14 @@
     void loadLinkPreview(getSession(), target)
       .then((result) => {
         if (!cancelled) {
+          currentLoadedUrl = target;
           preview = result;
           loading = false;
         }
       })
       .catch(() => {
         if (!cancelled) {
+          currentLoadedUrl = target;
           loading = false;
         }
       });
@@ -78,6 +94,7 @@
           src={preview.image}
           alt=""
           loading="lazy"
+          use:checkImgReady
           onload={() => (imageReady = true)}
           onerror={() => (imageFailed = true)}
         />

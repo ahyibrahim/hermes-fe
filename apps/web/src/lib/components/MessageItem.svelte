@@ -37,7 +37,7 @@
   class="msg-item"
   class:own
   class:can-delete={canDelete}
-  in:msgEnter={{ enabled: animateEnter, own }}
+  in:msgEnter|global={{ enabled: animateEnter, own }}
 >
   {#if deleted}
     <div class="msg-item-body tombstone" in:soft|local>Message deleted</div>

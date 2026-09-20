@@ -4,9 +4,7 @@
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import { backdrop, panel } from '$lib/motion';
-  import { portal } from '$lib/ui';
-
-  const MAX_PREVIEW_BYTES = 200 * 1024;
+  import { getCachedMdPreview, loadMdPreview, portal } from '$lib/ui';
 
   let {
     fileId,
@@ -18,10 +16,12 @@
     onDownload: () => void;
   } = $props();
 
-  let html = $state<string | null>(null);
-  let truncated = $state(false);
-  let failed = $state(false);
+  const initialCached = getCachedMdPreview(fileId);
+  let html = $state<string | null>(initialCached?.html ?? null);
+  let truncated = $state(initialCached?.truncated ?? false);
+  let failed = $state(initialCached === null);
   let expanded = $state(false);
+  let currentLoadedId = $state<string | null>(initialCached !== undefined ? String(fileId) : null);
 
   function isMarkdown(mime: string, filename: string): boolean {
     const type = mime.toLowerCase().split(';')[0].trim();
@@ -55,35 +55,44 @@
   $effect(() => {
     const id = String(fileId);
     const filename = name;
+    if (currentLoadedId === id) {
+      return;
+    }
+    const cached = getCachedMdPreview(id);
+    if (cached !== undefined) {
+      untrack(() => {
+        currentLoadedId = id;
+        html = cached?.html ?? null;
+        truncated = cached?.truncated ?? false;
+        failed = cached === null;
+      });
+      return;
+    }
     untrack(() => {
+      currentLoadedId = null;
       html = null;
       truncated = false;
       failed = false;
       expanded = false;
     });
     let cancelled = false;
-    void getSession()
-      .fetchFile(id)
-      .then(async ({ bytes, mime }) => {
-        if (cancelled || !isMarkdown(mime, filename)) {
-          failed = true;
-          return;
-        }
-        const slice = bytes.byteLength > MAX_PREVIEW_BYTES ? bytes.slice(0, MAX_PREVIEW_BYTES) : bytes;
-        truncated = bytes.byteLength > MAX_PREVIEW_BYTES;
-        const text = new TextDecoder('utf-8', { fatal: false }).decode(slice);
-        const [{ marked }, DOMPurifyMod] = await Promise.all([import('marked'), import('dompurify')]);
+    void loadMdPreview(getSession(), id, filename)
+      .then((res) => {
         if (cancelled) {
           return;
         }
-        const purify = DOMPurifyMod.default;
-        const rendered = marked.parse(text, { async: false }) as string;
-        html = purify.sanitize(rendered, {
-          USE_PROFILES: { html: true },
-        });
+        currentLoadedId = id;
+        if (res) {
+          html = res.html;
+          truncated = res.truncated;
+          failed = false;
+        } else {
+          failed = true;
+        }
       })
       .catch(() => {
         if (!cancelled) {
+          currentLoadedId = id;
           failed = true;
         }
       });

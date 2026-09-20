@@ -105,16 +105,18 @@ export function msgEnter(node: Element, params?: MsgEnterParams): TransitionConf
   if (prefersReducedMotion()) {
     return fade(node, { duration: duration(motionMs.fast) });
   }
-  if (params.own) {
-    return fly(node, {
-      y: 20,
-      duration: duration(motionMs.base),
-      easing: cubicOut
-    });
-  }
-  return fly(node, {
-    y: 8,
-    duration: duration(motionMs.fast),
-    easing: cubicOut
-  });
+  const isOwn = Boolean(params.own);
+  const d = duration(isOwn ? 300 : 220);
+  const yOffset = isOwn ? 32 : 14;
+  const startScale = isOwn ? 0.96 : 0.98;
+
+  return {
+    duration: d,
+    easing: (t) => 1 - Math.pow(1 - t, 4),
+    css: (t) => {
+      const ty = (1 - t) * yOffset;
+      const s = startScale + (1 - startScale) * t;
+      return `opacity: ${t}; transform: translateY(${ty}px) scale(${s});`;
+    }
+  };
 }

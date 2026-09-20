@@ -21,6 +21,13 @@
   let failed = $state(false);
   let imageReady = $state(false);
   let expanded = $state(false);
+  let currentLoadedId = $state<string | null>(null);
+
+  function checkImgReady(node: HTMLImageElement) {
+    if (node.complete && node.naturalWidth > 0) {
+      imageReady = true;
+    }
+  }
 
   function imageMime(mime: string, filename: string): string | null {
     const type = mime.toLowerCase().split(';')[0].trim();
@@ -61,7 +68,11 @@
   $effect(() => {
     const id = String(fileId);
     const filename = name;
+    if (currentLoadedId === id) {
+      return;
+    }
     untrack(() => {
+      currentLoadedId = null;
       previewUrl = null;
       loading = true;
       failed = false;
@@ -78,6 +89,7 @@
           return;
         }
         if (!type) {
+          currentLoadedId = id;
           loading = false;
           failed = true;
           return;
@@ -85,11 +97,13 @@
         const copy = new Uint8Array(bytes.byteLength);
         copy.set(bytes);
         objectUrl = URL.createObjectURL(new Blob([copy], { type }));
+        currentLoadedId = id;
         previewUrl = objectUrl;
         loading = false;
       })
       .catch(() => {
         if (!cancelled) {
+          currentLoadedId = id;
           loading = false;
           failed = true;
         }
@@ -119,6 +133,7 @@
         class:settled={imageReady}
         src={previewUrl}
         alt={name}
+        use:checkImgReady
         onload={() => (imageReady = true)}
       />
     </span>
