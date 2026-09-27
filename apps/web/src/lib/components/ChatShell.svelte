@@ -30,6 +30,7 @@
   } from '$lib/ui';
   import { bindSfxUnlock, playSfx, unlockSfx } from '$lib/sfx';
   import { ScrollPin } from '$lib/chat/scroll-pin.svelte';
+  import { bindSessionListeners, type WatchView } from '$lib/chat/session-listeners';
   import { TranscriptBuffer } from '$lib/chat/transcript-buffer.svelte';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
   import { onMount } from 'svelte';
@@ -79,18 +80,7 @@
   let callToast = $state<{ room: string; user: string } | null>(null);
   let sendFlash = $state(false);
   let sendFlashTimer: ReturnType<typeof setTimeout> | null = null;
-  let watch = $state<{
-    room: string;
-    videoId: string;
-    url: string;
-    host: string;
-    playing: boolean;
-    position: number;
-    rate: number;
-    updatedAt: number;
-    users: string[];
-    open: boolean;
-  } | null>(null);
+  let watch = $state<WatchView | null>(null);
   let watchDenied = $state('');
   let watchDeniedTimer: ReturnType<typeof setTimeout> | undefined;
   let watchIntent = $state<'start' | 'join' | null>(null);
@@ -1200,241 +1190,81 @@
       }
     });
     syncFromSession();
-    const offs = [
-      session.on('history', () => {
-        pin.stickToBottom = true;
-        pin.showJump = false;
-        syncMetaFromSession();
-        // selectRoom owns the dual-buffer commit while a switch is pending.
-        if (!buffer.pendingRoom) {
-          buffer.liveEnterIds.clear();
-          buffer.displayMessages = [...session.getState().messages];
-        }
-        if (currentRoom) {
-          clearUnread(currentRoom);
-        }
-      }),
-      session.on('message', (message) => {
-        syncMetaFromSession();
-        if (!buffer.pendingRoom) {
-          buffer.markLiveEnter(message.id);
-          buffer.displayMessages = [...session.getState().messages];
-          buffer.pruneLiveEnterIds(buffer.displayMessages);
-        }
-        if (message.sender && (!message.room || message.room === currentRoom)) {
-          typingUsers = typingUsers.filter((name) => name !== message.sender);
-        }
-        if (message.room) {
-          if (shouldCountUnread(message.room, message)) {
-            bumpUnread(message.room);
-          } else if (isCaughtUp(message.room)) {
-            void session.markRoomRead(message.room);
-          }
-        }
-        if (message.room) {
-          rooms = rooms.map((entry) =>
-            entry.slug === message.room
-              ? {
-                  ...entry,
-                  last_message: {
-                    id: message.id,
-                    sender: message.sender,
-                    content: message.content.slice(0, 80),
-                    deleted: false,
-                    file: message.file_id != null && message.file_id !== '',
-                  },
-                }
-              : entry
-          );
-        }
-        maybeNotify(message.room, message);
-        maybeReceiveCue(message.room, message);
-      }),
-      session.on('roomActivity', ({ room, message }) => {
-        if (message.deleted_at) {
-          rooms = rooms.map((entry) =>
-            entry.slug === room
-              ? {
-                  ...entry,
-                  last_message: {
-                    id: message.id,
-                    sender: message.sender,
-                    content: '',
-                    deleted: true,
-                    file: false,
-                  },
-                }
-              : entry
-          );
-          return;
-        }
-        if (!rooms.some((entry) => entry.slug === room)) {
-          void loadRooms();
-        } else {
-          if (shouldCountUnread(room, message)) {
-            bumpUnread(room);
-          }
-          rooms = rooms.map((entry) =>
-            entry.slug === room
-              ? {
-                  ...entry,
-                  last_message: {
-                    id: message.id,
-                    sender: message.sender,
-                    content: message.content.slice(0, 80),
-                    deleted: false,
-                    file: message.file_id != null && message.file_id !== '',
-                  },
-                }
-              : entry
-          );
-        }
-        maybeNotify(room, message);
-        maybeReceiveCue(room, message);
-      }),
-      session.on('messageDeleted', () => {
-        if (!buffer.pendingRoom) {
-          buffer.displayMessages = [...session.getState().messages];
-        }
-      }),
-      session.on('userUpdated', (user) => {
-        directory = directory.map((entry) =>
-          entry.id === user.id || entry.username === user.username ? { ...entry, ...user } : entry
-        );
-      }),
-      session.on('memberAdded', () => {
-        void loadRooms();
-      }),
-      session.on('memberRemoved', async ({ room, users: removed }) => {
-        const meName = session.getState().username;
-        const wasKicked = Boolean(meName && removed.includes(meName));
-        await loadRooms();
-        if (wasKicked && currentRoom === room) {
-          const next = rooms.find((entry) => entry.slug === 'general') ?? rooms[0];
-          if (next) {
-            await selectRoom(next.slug);
-          } else {
-            currentRoom = null;
-            buffer.clearDisplayTranscript();
-          }
-          closeRoomMenu();
-        }
-      }),
-      session.on('roomDeleted', ({ room }) => {
-        rooms = rooms.filter((entry) => entry.slug !== room);
-        if (currentRoom === room) {
-          const next = rooms.find((entry) => entry.slug === 'general') ?? rooms[0];
-          if (next) {
-            void selectRoom(next.slug);
-          } else {
-            currentRoom = null;
-            buffer.clearDisplayTranscript();
-          }
-          closeRoomMenu();
-        }
-      }),
-      session.on('callStarted', ({ room, user }) => {
-        if (user === session.getState().username) {
-          return;
-        }
-        if (room === session.getState().room) {
-          return;
-        }
-        callToast = { room, user };
-      }),
-      session.on('watchStarted', (payload) => {
-        const meName = session.getState().username;
-        const viewing = payload.room === session.getState().room;
-        const wasOpen = watch?.open && watch.room === payload.room;
-        applyWatchSnapshot(payload, wasOpen || watchIntent !== null);
-        if (watchIntent === 'start' && payload.host === meName) {
-          playSfx('watch-start');
-        } else if (viewing || watchIntent === 'join') {
-          // Someone else started while you view the room, or you joined via start-as-join.
-          if (payload.host !== meName || watchIntent === 'join') {
-            playSfx('watch-join');
-          }
-        }
-        if (watchIntent) {
-          watch = watch ? { ...watch, open: true } : watch;
-          watchIntent = null;
-        }
-      }),
-      session.on('watchState', (payload) => {
-        const meName = session.getState().username;
-        const wasOpen = watch?.open && watch.room === payload.room;
-        const intent = watchIntent;
-        const joining = intent === 'join' || intent === 'start';
-        applyWatchSnapshot(payload, wasOpen || joining);
-        if (intent === 'start' && payload.host === meName) {
-          playSfx('watch-start');
-          watchIntent = null;
-          if (watch) {
-            watch = { ...watch, open: true };
-          }
-        } else if (joining) {
-          // Explicit join, or start-as-join when a session already existed.
-          playSfx('watch-join');
-          watchIntent = null;
-          if (watch) {
-            watch = { ...watch, open: true };
-          }
-        }
-      }),
-      session.on('watchPeers', ({ room, users: peerUsers, host }) => {
-        if (!watch || watch.room !== room) {
-          return;
-        }
-        watch = { ...watch, users: [...peerUsers], host };
-      }),
-      session.on('watchEnded', ({ room, user: endedBy }) => {
-        const active = watch;
-        if (!active || active.room !== room) {
-          return;
-        }
-        const wasIn = active.open || active.users.includes(username ?? '');
-        if (wasIn) {
-          playSfx('watch-end');
-        }
-        void endedBy;
-        watch = null;
-        watchIntent = null;
-      }),
-      session.on('watchControlDenied', ({ action, reason }) => {
-        flashWatchDenied(reason ? `${action}: ${reason}` : `Cannot ${action}`);
-      }),
-      session.on('leftWatch', ({ room }) => {
-        if (watch?.room === room) {
-          watch = { ...watch, open: false };
-        }
-        watchIntent = null;
-      }),
-      session.on('presence', () => {
-        const state = session.getState();
-        users = [...state.roomUsers].sort((a, b) => a.localeCompare(b));
-        void loadDirectory();
-      }),
-      session.on('typing', ({ room, user, active }) => {
-        if (room !== currentRoom || user === username) {
-          return;
-        }
-        if (active) {
-          if (!typingUsers.includes(user)) {
-            typingUsers = [...typingUsers, user].sort((a, b) => a.localeCompare(b));
-          }
-        } else {
-          typingUsers = typingUsers.filter((name) => name !== user);
-        }
-      }),
-      session.on('status', ({ status: next }) => {
+    const offs = bindSessionListeners(session, {
+      pin,
+      buffer,
+      get rooms() {
+        return rooms;
+      },
+      set rooms(next) {
+        rooms = next;
+      },
+      get directory() {
+        return directory;
+      },
+      set directory(next) {
+        directory = next;
+      },
+      get users() {
+        return users;
+      },
+      set users(next) {
+        users = next;
+      },
+      get status() {
+        return status;
+      },
+      set status(next) {
         status = next;
-      }),
-      session.on('info', ({ message }) => flash(message, false)),
-      session.on('error', ({ message }) => flash(message, true)),
-      session.on('joined', ({ room }) => {
-        currentRoom = room;
-      }),
-    ];
+      },
+      get currentRoom() {
+        return currentRoom;
+      },
+      set currentRoom(next) {
+        currentRoom = next;
+      },
+      get username() {
+        return username;
+      },
+      get typingUsers() {
+        return typingUsers;
+      },
+      set typingUsers(next) {
+        typingUsers = next;
+      },
+      get callToast() {
+        return callToast;
+      },
+      set callToast(next) {
+        callToast = next;
+      },
+      get watch() {
+        return watch;
+      },
+      set watch(next) {
+        watch = next;
+      },
+      get watchIntent() {
+        return watchIntent;
+      },
+      set watchIntent(next) {
+        watchIntent = next;
+      },
+      syncMetaFromSession,
+      clearUnread,
+      shouldCountUnread,
+      bumpUnread,
+      isCaughtUp,
+      maybeNotify,
+      maybeReceiveCue,
+      loadRooms,
+      loadDirectory,
+      selectRoom,
+      closeRoomMenu,
+      applyWatchSnapshot,
+      flashWatchDenied,
+      flash,
+    });
 
     const onVisibility = () => {
       if (!document.hidden) {
