@@ -29,6 +29,7 @@
     writeNotifyMuted,
   } from '$lib/ui';
   import { bindSfxUnlock, playSfx, unlockSfx } from '$lib/sfx';
+  import { ScrollPin } from '$lib/chat/scroll-pin.svelte';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
   import { onMount, tick } from 'svelte';
 
@@ -66,11 +67,6 @@
   let deletingRoom = $state(false);
   let kickingId = $state<number | null>(null);
   let composerComponent: Composer | undefined = $state();
-  let scroller: HTMLDivElement | undefined = $state();
-  let stickToBottom = $state(true);
-  let showJump = $state(false);
-  let ignoreScroll = false;
-  let pinScrollTimer: ReturnType<typeof setTimeout> | null = null;
   /** IDs allowed to play enter motion — live appends only, never room-history remounts. */
   const liveEnterIds = new Set<number>();
   let roomsCollapsed = $state(false);
@@ -120,6 +116,7 @@
   let mesh = $state.raw<VoiceMesh | undefined>();
 
   const session = getSession();
+  const pin = new ScrollPin(() => void markFocusedRead());
   const unreadTotal = $derived(rooms.reduce((sum, room) => sum + (room.unread_count ?? 0), 0));
   const tabTitle = $derived(unreadTotal > 0 ? `(${unreadTotal}) Hermes` : 'Hermes');
   const me = $derived(directory.find((person) => person.username === username) ?? null);
@@ -280,7 +277,7 @@
     if (typeof document !== 'undefined' && document.hidden) {
       return false;
     }
-    return stickToBottom;
+    return pin.stickToBottom;
   }
 
   function shouldCountUnread(slug: string, message: MessageRecord): boolean {
@@ -438,12 +435,12 @@
 
     displayMessages = next;
     pendingRoom = null;
-    stickToBottom = true;
-    showJump = false;
+    pin.stickToBottom = true;
+    pin.showJump = false;
     liveEnterIds.clear();
     transcriptPhase = 'entering';
     await tick();
-    pinToLatest('auto');
+    pin.pinToLatest('auto');
     await sleep(inMs);
     if (gen === roomSwitchGen && transcriptPhase === 'entering') {
       transcriptPhase = 'idle';
@@ -584,76 +581,6 @@
     }
   }
 
-  function atBottom(): boolean {
-    if (!scroller) {
-      return true;
-    }
-    return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
-  }
-
-  function onTranscriptScroll(): void {
-    if (!scroller || ignoreScroll) {
-      return;
-    }
-    const wasCaughtUp = stickToBottom;
-    stickToBottom = atBottom();
-    showJump = !stickToBottom;
-    if (!wasCaughtUp && stickToBottom) {
-      void markFocusedRead();
-    }
-  }
-
-  function pinToLatest(behavior: ScrollBehavior = 'auto'): void {
-    if (!scroller || !stickToBottom) {
-      return;
-    }
-    ignoreScroll = true;
-    if (pinScrollTimer) {
-      clearTimeout(pinScrollTimer);
-      pinScrollTimer = null;
-    }
-
-    const finish = (): void => {
-      ignoreScroll = false;
-      showJump = false;
-      pinScrollTimer = null;
-    };
-
-    const useSmooth = behavior === 'smooth' && !prefersReducedMotion();
-    if (useSmooth) {
-      const apply = (): void => {
-        if (scroller && stickToBottom) {
-          scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
-        }
-      };
-      apply();
-      requestAnimationFrame(apply);
-      pinScrollTimer = setTimeout(finish, motionMs.slow + 80);
-      return;
-    }
-
-    const apply = (): void => {
-      if (scroller && stickToBottom) {
-        scroller.scrollTop = scroller.scrollHeight;
-      }
-    };
-    apply();
-    requestAnimationFrame(() => {
-      apply();
-      requestAnimationFrame(() => {
-        apply();
-        finish();
-      });
-    });
-  }
-
-  function jumpToLatest(): void {
-    stickToBottom = true;
-    showJump = false;
-    pinToLatest('smooth');
-    void markFocusedRead();
-  }
-
   async function markFocusedRead(): Promise<void> {
     if (!currentRoom || !isCaughtUp(currentRoom)) {
       return;
@@ -730,8 +657,8 @@
       peopleCollapsed = true;
     }
     banner = '';
-    stickToBottom = true;
-    showJump = false;
+    pin.stickToBottom = true;
+    pin.showJump = false;
     if (currentRoom && currentRoom !== slug) {
       saveDraft(currentRoom, draft);
       stopLocalTyping();
@@ -1193,8 +1120,8 @@
       if (currentRoom) {
         clearDraft(currentRoom);
       }
-      stickToBottom = true;
-      showJump = false;
+      pin.stickToBottom = true;
+      pin.showJump = false;
       growComposer();
       flashSendControl();
       unlockSfx();
@@ -1242,38 +1169,10 @@
     return value;
   }
 
-  $effect(() => {
-    displayMessages;
-    if (!scroller) {
-      return;
-    }
-    if (stickToBottom) {
-      const behavior: ScrollBehavior =
-        transcriptPhase === 'idle' ? 'smooth' : 'auto';
-      void tick().then(() => pinToLatest(behavior));
-    } else {
-      showJump = true;
-    }
-  });
-
-  $effect(() => {
-    const root = scroller;
-    if (!root) {
-      return;
-    }
-    const inner = root.firstElementChild;
-    if (!(inner instanceof HTMLElement)) {
-      return;
-    }
-    const ro = new ResizeObserver(() => {
-      if (stickToBottom) {
-        pinToLatest('auto');
-      }
-    });
-    ro.observe(inner);
-    ro.observe(root);
-    return () => ro.disconnect();
-  });
+  pin.track(
+    () => displayMessages,
+    () => transcriptPhase
+  );
 
   onMount(() => {
     const media = window.matchMedia(PHONE_MAX_WIDTH_MQ);
@@ -1365,8 +1264,8 @@
     syncFromSession();
     const offs = [
       session.on('history', () => {
-        stickToBottom = true;
-        showJump = false;
+        pin.stickToBottom = true;
+        pin.showJump = false;
         syncMetaFromSession();
         // selectRoom owns the dual-buffer commit while a switch is pending.
         if (!pendingRoom) {
@@ -1835,19 +1734,19 @@
     />
 
     <TranscriptView
-      bind:scroller
+      bind:scroller={pin.scroller}
       {displayMessages}
       {transcriptRows}
       {transcriptPhase}
       {pendingRoom}
       {banner}
       {bannerError}
-      {showJump}
+      showJump={pin.showJump}
       {directory}
       {username}
       {me}
-      {onTranscriptScroll}
-      onJumpToLatest={jumpToLatest}
+      onTranscriptScroll={pin.onTranscriptScroll}
+      onJumpToLatest={pin.jumpToLatest}
       {lookupUser}
       {shouldAnimateEnter}
       {onDownload}
