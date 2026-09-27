@@ -4,19 +4,19 @@
   import { goto } from '$app/navigation';
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
-  import CallBar from '$lib/components/CallBar.svelte';
+  import CallOverlay from '$lib/components/CallOverlay.svelte';
+  import Composer from '$lib/components/Composer.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import MemberStack from '$lib/components/MemberStack.svelte';
-  import MessageGroup from '$lib/components/MessageGroup.svelte';
   import RoomMenu from '$lib/components/RoomMenu.svelte';
-  import UserChip from '$lib/components/UserChip.svelte';
+  import SideRailDrawer from '$lib/components/SideRailDrawer.svelte';
+  import TranscriptView from '$lib/components/TranscriptView.svelte';
   import UserMenu from '$lib/components/UserMenu.svelte';
   import WatchOverlay from '$lib/components/WatchOverlay.svelte';
   import { backdrop, motionMs, prefersReducedMotion, soft, toast } from '$lib/motion';
   import {
     clearDraft,
-    formatUnread,
     isSystemUser,
     loadDraft,
     PHONE_MAX_WIDTH_MQ,
@@ -65,8 +65,7 @@
   let leaving = $state(false);
   let deletingRoom = $state(false);
   let kickingId = $state<number | null>(null);
-  let fileInput: HTMLInputElement | undefined = $state();
-  let composer: HTMLTextAreaElement | undefined = $state();
+  let composerComponent: Composer | undefined = $state();
   let scroller: HTMLDivElement | undefined = $state();
   let stickToBottom = $state(true);
   let showJump = $state(false);
@@ -77,6 +76,9 @@
   let roomsCollapsed = $state(false);
   let peopleCollapsed = $state(false);
   let phoneViewport = $state(false);
+  /** Lags phoneViewport going narrow so open rails slide shut before the drawer layout applies. */
+  let phoneLayout = $state(false);
+  let phoneLayoutTimer: ReturnType<typeof setTimeout> | null = null;
   let addInviteeIds = $state<number[]>([]);
   let showAddPicker = $state(false);
   let showRoomMenu = $state(false);
@@ -115,7 +117,7 @@
     preview: null,
     error: null,
   });
-  let mesh: VoiceMesh | undefined;
+  let mesh = $state.raw<VoiceMesh | undefined>();
 
   const session = getSession();
   const unreadTotal = $derived(rooms.reduce((sum, room) => sum + (room.unread_count ?? 0), 0));
@@ -665,24 +667,7 @@
   }
 
   function growComposer(): void {
-    if (!composer) {
-      return;
-    }
-    const el = composer;
-    const prev = el.offsetHeight;
-    el.style.height = 'auto';
-    const max = 8 * 16;
-    const next = Math.min(el.scrollHeight, max);
-    if (prefersReducedMotion() || prev === next) {
-      el.style.transition = '';
-      el.style.height = `${next}px`;
-      return;
-    }
-    el.style.transition = '';
-    el.style.height = `${prev}px`;
-    void el.offsetHeight;
-    el.style.transition = `height ${motionMs.base}ms var(--ease-out)`;
-    el.style.height = `${next}px`;
+    composerComponent?.growComposer();
   }
 
   function flashSendControl(): void {
@@ -726,19 +711,6 @@
       clearTimeout(typingIdleTimer);
     }
     typingIdleTimer = setTimeout(() => stopLocalTyping(), 2500);
-  }
-
-  function typingLabel(names: string[]): string {
-    if (names.length === 0) {
-      return '';
-    }
-    if (names.length === 1) {
-      return `${names[0]} is typing`;
-    }
-    if (names.length === 2) {
-      return `${names[0]} and ${names[1]} are typing`;
-    }
-    return `${names[0]} and ${names.length - 1} others are typing`;
   }
 
   function onDraftInput(): void {
@@ -1141,21 +1113,6 @@
     }
   });
 
-  function formatFileSize(bytes: number): string {
-    if (bytes < 1024) {
-      return `${bytes} B`;
-    }
-    if (bytes < 1024 * 1024) {
-      return `${(bytes / 1024).toFixed(1)} KB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  function fileBadgeLabel(name: string): string {
-    const ext = name.split('.').pop()?.toUpperCase();
-    return ext && ext.length <= 4 ? ext : 'FILE';
-  }
-
   function isFileDrag(event: DragEvent): boolean {
     if (!event.dataTransfer?.types) {
       return false;
@@ -1228,9 +1185,6 @@
         const path = await getFileIO().ingest(file);
         await session.sendFile(path);
         pendingFile = null;
-        if (fileInput) {
-          fileInput.value = '';
-        }
       }
       if (text) {
         await session.sendMessage(text);
@@ -1249,41 +1203,12 @@
       flash(error instanceof Error ? error.message : String(error), true);
     } finally {
       sending = false;
-      composer?.focus();
-    }
-  }
-
-  function onComposerKey(event: KeyboardEvent): void {
-    if (event.key === 'Enter' && !event.shiftKey && !phoneViewport) {
-      event.preventDefault();
-      void send();
-    }
-  }
-
-  function onFilePicked(event: Event): void {
-    const input = event.currentTarget as HTMLInputElement;
-    takePendingFile(input.files?.[0] ?? null);
-  }
-
-  function onComposerDrop(event: DragEvent): void {
-    event.preventDefault();
-    takePendingFile(event.dataTransfer?.files?.[0]);
-  }
-
-  function onComposerPaste(event: ClipboardEvent): void {
-    const item = [...(event.clipboardData?.items ?? [])].find((entry) => entry.type.startsWith('image/'));
-    const file = item?.getAsFile();
-    if (file) {
-      event.preventDefault();
-      takePendingFile(file);
+      composerComponent?.focus();
     }
   }
 
   function clearPendingFile(): void {
     pendingFile = null;
-    if (fileInput) {
-      fileInput.value = '';
-    }
   }
 
   async function onDownload(message: MessageRecord): Promise<void> {
@@ -1353,6 +1278,7 @@
   onMount(() => {
     const media = window.matchMedia(PHONE_MAX_WIDTH_MQ);
     phoneViewport = media.matches;
+    phoneLayout = media.matches;
     applyPhoneRails(phoneViewport);
     const onPhoneChange = (): void => {
       const next = media.matches;
@@ -1360,7 +1286,28 @@
         return;
       }
       phoneViewport = next;
-      applyPhoneRails(next);
+      if (phoneLayoutTimer) {
+        clearTimeout(phoneLayoutTimer);
+        phoneLayoutTimer = null;
+      }
+      if (!next) {
+        phoneLayout = false;
+        applyPhoneRails(false);
+        return;
+      }
+      const railsOpen = !roomsCollapsed || !peopleCollapsed;
+      applyPhoneRails(true);
+      if (!railsOpen) {
+        phoneLayout = true;
+        return;
+      }
+      phoneLayoutTimer = setTimeout(
+        () => {
+          phoneLayoutTimer = null;
+          phoneLayout = true;
+        },
+        prefersReducedMotion() ? 80 : motionMs.slow
+      );
     };
     media.addEventListener('change', onPhoneChange);
     const unbindSfx = bindSfxUnlock();
@@ -1656,6 +1603,9 @@
 
     return () => {
       media.removeEventListener('change', onPhoneChange);
+      if (phoneLayoutTimer) {
+        clearTimeout(phoneLayoutTimer);
+      }
       unbindSfx();
       document.removeEventListener('pointerdown', onFirstGesture, { capture: true });
       document.removeEventListener('keydown', onFirstGesture, { capture: true });
@@ -1680,8 +1630,9 @@
   class="shell"
   class:rooms-collapsed={roomsCollapsed}
   class:people-collapsed={peopleCollapsed}
+  class:phone={phoneLayout}
 >
-  {#if phoneViewport && (!roomsCollapsed || !peopleCollapsed)}
+  {#if phoneLayout && (!roomsCollapsed || !peopleCollapsed)}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="rail-drawer-backdrop"
@@ -1693,135 +1644,40 @@
       }}
     ></div>
   {/if}
-  <aside class="rail rooms-rail">
-    <div class="rail-heading">
-      <button
-        type="button"
-        class="rail-toggle"
-        aria-label={roomsCollapsed ? 'Expand rooms' : 'Collapse rooms'}
-        aria-expanded={!roomsCollapsed}
-        onclick={() => setCollapsed('rooms', !roomsCollapsed)}
-      >
-        <IconGlyph name={roomsCollapsed ? 'chevron-right' : 'chevron-left'} />
-      </button>
-      {#if !roomsCollapsed}
-        <span transition:soft>rooms</span>
-      {/if}
-    </div>
-    {#if !roomsCollapsed}
-      <div class="rail-body" transition:soft>
-      {#if groupRooms.length === 0}
-        <p class="empty-hint">No rooms yet.</p>
-      {:else}
-        <ul class="room-list">
-          {#each groupRooms as room (room.id)}
-            <li>
-              <button
-                type="button"
-                class:active={room.slug === currentRoom}
-                onclick={() => selectRoom(room.slug)}
-              >
-                <span class="room-copy">
-                  <span class="room-label"><span class="hash">#</span>{roomTitle(room)}</span>
-                  {#if previewLine(room)}
-                    <span class="room-preview">{previewLine(room)}</span>
-                  {/if}
-                </span>
-                {#if formatUnread(room.unread_count)}
-                  <span class="unread">{formatUnread(room.unread_count)}</span>
-                {/if}
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      <div class="rail-heading sub">Direct messages</div>
-      {#if dmRooms.length === 0}
-        <p class="empty-hint">No DMs yet.</p>
-      {:else}
-        <ul class="room-list">
-          {#each dmRooms as room (room.id)}
-            {@const peer = lookupUser(roomTitle(room))}
-            <li class="dm-row">
-              <button
-                type="button"
-                class:active={room.slug === currentRoom}
-                onclick={() => selectRoom(room.slug)}
-              >
-                {#if peer}
-                  <Avatar user={peer} size="sm" online={isOnline(peer.username)} />
-                {/if}
-                <span class="room-copy">
-                  <span class="room-label"><span class="hash">@</span>{roomTitle(room)}</span>
-                  {#if previewLine(room)}
-                    <span class="room-preview">{previewLine(room)}</span>
-                  {/if}
-                </span>
-                {#if formatUnread(room.unread_count)}
-                  <span class="unread">{formatUnread(room.unread_count)}</span>
-                {/if}
-              </button>
-              <button
-                type="button"
-                class="row-x"
-                title="Close DM"
-                aria-label="Close DM"
-                disabled={leaving}
-                onclick={() => hideSlug(room.slug)}
-              >
-                <IconGlyph name="close" size={12} />
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      {#if showCreateRoom}
-        <form
-          class="new-room"
-          onsubmit={(event) => {
-            event.preventDefault();
-            void createGroup();
-          }}
-        >
-          <div class="new-room-row">
-            <input
-              type="text"
-              placeholder="New room"
-              bind:value={newRoomName}
-              disabled={creatingRoom}
-              maxlength="80"
-              aria-label="Room name"
-            />
-            <IconButton
-              type="submit"
-              label="Create room"
-              tone="accent"
-              disabled={creatingRoom || !newRoomName.trim()}
-              busy={creatingRoom}
-            >
-              <IconGlyph name="plus" />
-            </IconButton>
-            <IconButton
-              label="Cancel"
-              disabled={creatingRoom}
-              onclick={() => {
-                showCreateRoom = false;
-                newRoomName = '';
-              }}
-            >
-              <IconGlyph name="close" />
-            </IconButton>
-          </div>
-        </form>
-      {:else}
-        <button type="button" class="new-room-open" onclick={() => (showCreateRoom = true)}>
-          <IconGlyph name="plus" />
-          New room
-        </button>
-      {/if}
-      </div>
-    {/if}
-  </aside>
+  <SideRailDrawer
+    rail="rooms"
+    {roomsCollapsed}
+    {peopleCollapsed}
+    {groupRooms}
+    {dmRooms}
+    {people}
+    {currentRoom}
+    activeDmPeer={isDm(currentRoomRecord()) ? roomTitle(currentRoomRecord()) : null}
+    {username}
+    {me}
+    {creatingRoom}
+    {showCreateRoom}
+    {newRoomName}
+    {leaving}
+    onSetCollapsed={setCollapsed}
+    onSelectRoom={selectRoom}
+    onHideSlug={hideSlug}
+    onCreateGroup={createGroup}
+    onStartDm={startDm}
+    onResetPassword={resetPasswordFor}
+    onSetRole={setRoleFor}
+    onNewRoomNameChange={(name) => (newRoomName = name)}
+    onToggleShowCreateRoom={(show) => {
+      showCreateRoom = show;
+      if (!show) {
+        newRoomName = '';
+      }
+    }}
+    {lookupUser}
+    {isOnline}
+    {roomTitle}
+    {previewLine}
+  />
 
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <section
@@ -1949,250 +1805,97 @@
     </header>
 
 
-    {#if voice.room}
-      <CallBar
-        roomLabel={callRoomLabel()}
-        viewingCallRoom={voice.room === currentRoom}
-        muted={voice.muted}
-        joining={voice.joining}
-        peers={voice.peers}
-        directory={directory}
-        mics={voice.mics}
-        inputDeviceId={voice.inputDeviceId}
-        sharing={voice.sharing}
-        preview={voice.preview}
-        selfName={username}
-        error={voice.error}
-        onMute={(muted) => {
-          mesh?.setMuted(muted);
-          playSfx(muted ? 'mute' : 'unmute');
-        }}
-        onLeave={() => {
-          void mesh?.leave();
-          playSfx('leave');
-        }}
-        onPickMic={(deviceId) => mesh?.setInputDevice(deviceId)}
-        onShowRoom={() => {
-          if (voice.room) {
-            void selectRoom(voice.room);
-          }
-        }}
-        onShare={() => {
-          void mesh?.startShare();
-        }}
-        onStopShare={() => {
-          void mesh?.stopShare();
-        }}
-      />
-    {/if}
+    <CallOverlay
+      {voice}
+      {mesh}
+      {currentRoom}
+      {username}
+      {directory}
+      roomLabel={callRoomLabel()}
+      showWatchBanner={Boolean(roomWatchActive && watch)}
+      onSelectRoom={selectRoom}
+      onOpenWatch={openWatchOverlay}
+      onLeaveWatch={() => leaveWatchSession()}
+      {playSfx}
+    />
 
-    {#if roomWatchActive && watch}
-      <div class="watch-banner">
-        <span>Watching together</span>
-        <span class="watch-banner-actions">
-          <IconButton label="Open watch" title="Open watch" onclick={() => void openWatchOverlay()}>
-            <IconGlyph name="watch" size={14} />
-          </IconButton>
-          <IconButton label="Leave watch" title="Leave watch" onclick={() => void leaveWatchSession()}>
-            <IconGlyph name="leave" size={14} />
-          </IconButton>
-        </span>
-      </div>
-    {/if}
+    <TranscriptView
+      bind:scroller
+      {displayMessages}
+      {transcriptRows}
+      {transcriptPhase}
+      {pendingRoom}
+      {banner}
+      {bannerError}
+      {showJump}
+      {directory}
+      {username}
+      {me}
+      {onTranscriptScroll}
+      onJumpToLatest={jumpToLatest}
+      {lookupUser}
+      {shouldAnimateEnter}
+      {onDownload}
+      onUnsend={unsend}
+      onResetPassword={resetPasswordFor}
+      onSetRole={setRoleFor}
+      onWatchTogether={handleWatchTogether}
+    />
 
-    <div class="messages" bind:this={scroller} onscroll={onTranscriptScroll}>
-      <div
-        class="messages-body"
-        class:scene-leaving={transcriptPhase === 'leaving'}
-        class:scene-entering={transcriptPhase === 'entering'}
-      >
-        {#if banner}
-          <p class="banner" class:error={bannerError}>{banner}</p>
-        {/if}
-        {#if displayMessages.length === 0 && transcriptPhase === 'idle' && !pendingRoom}
-          <p class="empty-hint">No messages yet.</p>
-        {:else}
-          {#each transcriptRows as row (row.key)}
-            {#if row.kind === 'date'}
-              <div class="date-sep">{row.label}</div>
-            {:else}
-              <MessageGroup
-                messages={row.group.messages}
-                sender={row.group.messages[0] ? lookupUser(row.group.messages[0].sender) : undefined}
-                users={directory}
-                showName={row.group.showName}
-                ownName={username}
-                isAdmin={me?.role === 'admin'}
-                {shouldAnimateEnter}
-                {onDownload}
-                onUnsend={unsend}
-                onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
-                onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
-                onWatchTogether={handleWatchTogether}
-              />
-            {/if}
-          {/each}
-        {/if}
-      </div>
-    </div>
-
-    {#if showJump}
-      <div class="jump-latest" transition:soft>
-        <IconButton label="Jump to latest" onclick={jumpToLatest}>
-          <IconGlyph name="jump" />
-        </IconButton>
-      </div>
-    {/if}
-
-    <div class="composer-presence" class:active={typingUsers.length > 0} aria-live="polite">
-      {#if typingUsers.length > 0}
-        <div class="typing-indicator" transition:soft>
-          <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span>{typingLabel(typingUsers)}</span>
-        </div>
-      {/if}
-    </div>
-
-    {#if pendingFile}
-      <div class="composer-attachment-strip" transition:soft>
-        <div class="attach-preview-chip">
-          {#if pendingFileUrl}
-            <img class="attach-thumb" src={pendingFileUrl} alt="" />
-          {:else}
-            <span class="attach-badge">{fileBadgeLabel(pendingFile.name)}</span>
-          {/if}
-          <div class="attach-meta">
-            <span class="attach-name" title={pendingFile.name}>{pendingFile.name}</span>
-            <span class="attach-size">{formatFileSize(pendingFile.size)}</span>
-          </div>
-          <button
-            type="button"
-            class="attach-remove-btn"
-            onclick={clearPendingFile}
-            aria-label="Remove attachment"
-            title="Remove file"
-          >
-            ×
-          </button>
-        </div>
-      </div>
-    {/if}
-
-    <form
-      class="composer"
-      class:conn-soft={status !== 'open'}
-      data-status={status}
-      onsubmit={(event) => {
-        event.preventDefault();
-        void send();
-      }}
-      ondragover={(event) => event.preventDefault()}
-      ondrop={onComposerDrop}
-    >
-      <input type="file" hidden bind:this={fileInput} onchange={onFilePicked} />
-      <div class="composer-attach">
-        <IconButton
-          label="Attach file"
-          disabled={sending || !currentRoom}
-          onclick={() => fileInput?.click()}
-        >
-          <IconGlyph name="attach" />
-        </IconButton>
-      </div>
-      <textarea
-        rows="1"
-        placeholder={composerHint()}
-        bind:this={composer}
-        bind:value={draft}
-        disabled={!currentRoom}
-        oninput={onDraftInput}
-        onkeydown={onComposerKey}
-        onpaste={onComposerPaste}
-        onblur={stopLocalTyping}
-      ></textarea>
-      <span class="composer-send" class:flash={sendFlash}>
-        <IconButton
-          type="submit"
-          label="Send"
-          tone="accent"
-          disabled={sending || !currentRoom || (!draft.trim() && !pendingFile)}
-        >
-          <IconGlyph name="send" />
-        </IconButton>
-      </span>
-    </form>
+    <Composer
+      bind:this={composerComponent}
+      bind:draft
+      {currentRoom}
+      {status}
+      hint={composerHint()}
+      {typingUsers}
+      {pendingFile}
+      {pendingFileUrl}
+      {sending}
+      {sendFlash}
+      {phoneViewport}
+      onSend={() => void send()}
+      {onDraftInput}
+      onTypingBlur={stopLocalTyping}
+      onFileSelected={takePendingFile}
+      onClearFile={clearPendingFile}
+    />
   </section>
 
-  <aside class="rail people">
-    <div class="rail-heading">
-      {#if !peopleCollapsed}
-        <span transition:soft>people</span>
-      {/if}
-      <button
-        type="button"
-        class="rail-toggle"
-        aria-label={peopleCollapsed ? 'Expand people' : 'Collapse people'}
-        aria-expanded={!peopleCollapsed}
-        onclick={() => setCollapsed('people', !peopleCollapsed)}
-      >
-        <IconGlyph name={peopleCollapsed ? 'chevron-left' : 'chevron-right'} />
-      </button>
-    </div>
-    {#if !peopleCollapsed}
-      <div class="rail-body" transition:soft>
-      {#if people.length === 0}
-        <p class="empty-hint">Nobody here yet.</p>
-      {:else}
-        <ul class="people-list">
-          {#each people as person (person.id)}
-            {@const activeDm =
-              Boolean(
-                currentRoomRecord() &&
-                  isDm(currentRoomRecord()) &&
-                  roomTitle(currentRoomRecord()) === person.username
-              )}
-            <li>
-              {#if person.username === username}
-                <span class="self">
-                  <UserChip
-                    user={person}
-                    online={isOnline(person.username)}
-                    onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
-                    onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
-                  />
-                  <span class="role-label">{person.role ?? 'member'}</span>
-                  <span class="you">you</span>
-                </span>
-              {:else}
-                <div
-                  class="person-row"
-                  class:active={activeDm}
-                  role="button"
-                  tabindex="0"
-                  onclick={() => void startDm(person)}
-                  onkeydown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      void startDm(person);
-                    }
-                  }}
-                >
-                  <UserChip
-                    user={person}
-                    online={isOnline(person.username)}
-                    onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
-                    onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
-                  />
-                  <span class="role-label">{person.role ?? 'member'}</span>
-                </div>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      </div>
-    {/if}
-  </aside>
+  <SideRailDrawer
+    rail="people"
+    {roomsCollapsed}
+    {peopleCollapsed}
+    {groupRooms}
+    {dmRooms}
+    {people}
+    {currentRoom}
+    activeDmPeer={isDm(currentRoomRecord()) ? roomTitle(currentRoomRecord()) : null}
+    {username}
+    {me}
+    {creatingRoom}
+    {showCreateRoom}
+    {newRoomName}
+    {leaving}
+    onSetCollapsed={setCollapsed}
+    onSelectRoom={selectRoom}
+    onHideSlug={hideSlug}
+    onCreateGroup={createGroup}
+    onStartDm={startDm}
+    onResetPassword={resetPasswordFor}
+    onSetRole={setRoleFor}
+    onNewRoomNameChange={(name) => (newRoomName = name)}
+    onToggleShowCreateRoom={(show) => {
+      showCreateRoom = show;
+      if (!show) {
+        newRoomName = '';
+      }
+    }}
+    {lookupUser}
+    {isOnline}
+    {roomTitle}
+    {previewLine}
+  />
 </div>
 
 {#if callToast}

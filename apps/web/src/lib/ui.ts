@@ -56,7 +56,6 @@ export async function loadMdPreview(
       mdPreviewCache.set(id, res);
       return res;
     } catch {
-      mdPreviewCache.set(id, null);
       return null;
     } finally {
       mdPreviewInflight.delete(id);
@@ -87,7 +86,6 @@ export async function loadLinkPreview(
       linkPreviewCache.set(url, res);
       return res;
     } catch {
-      linkPreviewCache.set(url, null);
       return null;
     } finally {
       linkPreviewInflight.delete(url);

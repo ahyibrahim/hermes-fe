@@ -1733,53 +1733,63 @@ button {
   grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem;
 }
 
-@media (max-width: 47.99rem) {
-  .shell,
-  .shell.rooms-collapsed,
-  .shell.people-collapsed,
-  .shell.rooms-collapsed.people-collapsed {
-    position: relative;
-    grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem !important;
-    transition: none;
-  }
+/* .phone is set by ChatShell from PHONE_MAX_WIDTH_MQ, after open rails have
+   slid shut, so crossing the breakpoint never snaps the grid. */
+.shell.phone,
+.shell.phone.rooms-collapsed,
+.shell.phone.people-collapsed,
+.shell.phone.rooms-collapsed.people-collapsed {
+  position: relative;
+  grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem;
+}
 
-  /* Full-bleed overlay drawer for rooms rail when expanded on mobile */
-  .shell:not(.rooms-collapsed) .rooms-rail {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 25;
-    width: min(18rem, 85vw);
-    background: var(--bg-rail);
-    box-shadow: var(--shadow);
-    border-right: 1px solid var(--border);
-  }
+/* Rails float over the transcript on phone and slide between the collapsed
+   strip and the drawer width. */
+.shell.phone .rooms-rail,
+.shell.phone .rail.people {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 25;
+  width: 2.5rem;
+  background: var(--bg-rail);
+  transition:
+    width var(--motion-slow) var(--ease-out),
+    box-shadow var(--motion-slow) var(--ease-out);
+}
 
-  /* Full-bleed overlay drawer for people rail when expanded on mobile */
-  .shell:not(.people-collapsed) .rail.people {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 0;
-    z-index: 25;
-    width: min(18rem, 85vw);
-    background: var(--bg-rail);
-    box-shadow: var(--shadow);
-    border-left: 1px solid var(--border);
-  }
+.shell.phone .rooms-rail {
+  left: 0;
+  border-right: 1px solid var(--border);
+}
 
-  .rail-drawer-backdrop {
-    position: absolute;
-    inset: 0;
-    z-index: 22;
-    background: color-mix(in srgb, #000 45%, transparent);
-    backdrop-filter: blur(2px);
-  }
+.shell.phone .rail.people {
+  right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.shell.phone:not(.rooms-collapsed) .rooms-rail,
+.shell.phone:not(.people-collapsed) .rail.people {
+  width: min(18rem, 85vw);
+  box-shadow: var(--shadow);
+}
+
+.shell.phone .rail-body {
+  width: calc(min(18rem, 85vw) - 1px);
+}
+
+.shell.phone .rail-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  background: color-mix(in srgb, #000 45%, transparent);
+  backdrop-filter: blur(2px);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shell {
+  .shell,
+  .shell.phone .rooms-rail,
+  .shell.phone .rail.people {
     transition-duration: 80ms;
   }
 
