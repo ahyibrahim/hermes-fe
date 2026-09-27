@@ -13,6 +13,11 @@ export interface FakeBackend {
   revokeToken(token: string): void;
   dropConnections(): void;
   seedUser(username: string, password: string): void;
+  /** GET /messages snapshots, then waits until resumeMessageLists(). */
+  holdMessageLists(): void;
+  resumeMessageLists(): void;
+  /** How many GET /messages calls are blocked in holdMessageLists(). */
+  messageListHolds: number;
 }
 
 interface StoredUser {
@@ -148,6 +153,9 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   let nextUserId = 1;
   let nextRoomId = 2;
   let joinCount = 0;
+  let messageListGate: Promise<void> | null = null;
+  let releaseMessageList: (() => void) | null = null;
+  let messageListHolds = 0;
 
   const connectedUsers = (room: string): string[] => [
     ...new Set([...clients].filter((client) => client.room === room).map((client) => client.user)),
@@ -1137,11 +1145,16 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         }
         const room = url.searchParams.get('room') ?? 'general';
         markRead(username, room);
-        sendJson(
-          res,
-          200,
-          messages.filter((message) => message.room === room)
-        );
+        const snapshot = messages.filter((message) => message.room === room);
+        if (messageListGate) {
+          messageListHolds += 1;
+          try {
+            await messageListGate;
+          } finally {
+            messageListHolds -= 1;
+          }
+        }
+        sendJson(res, 200, snapshot);
         return;
       }
 
@@ -1702,6 +1715,23 @@ export async function startFakeBackend(): Promise<FakeBackend> {
       for (const client of [...clients]) {
         client.socket.close();
       }
+    },
+    holdMessageLists() {
+      if (messageListGate) {
+        return;
+      }
+      messageListGate = new Promise((resolve) => {
+        releaseMessageList = resolve;
+      });
+    },
+    resumeMessageLists() {
+      const release = releaseMessageList;
+      messageListGate = null;
+      releaseMessageList = null;
+      release?.();
+    },
+    get messageListHolds() {
+      return messageListHolds;
     },
     close() {
       return new Promise<void>((resolve, reject) => {

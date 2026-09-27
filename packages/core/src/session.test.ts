@@ -47,6 +47,34 @@ test('session de-duplicates the same message id from REST and the live broadcast
   }
 });
 
+test('a message posted while room history is loading stays in the transcript', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  backend.seedUser('bob', 'secret');
+  const alice = createSession(backend.baseUrl);
+  const bob = createSession(backend.baseUrl);
+
+  try {
+    await alice.login('alice', 'secret');
+    await bob.login('bob', 'secret');
+    await bob.enterRoom('general');
+    await waitFor(() => bob.getConnectionStatus() === 'open');
+    backend.holdMessageLists();
+    const entering = alice.enterRoom('general');
+    await waitFor(() => backend.messageListHolds >= 1);
+    await bob.sendMessage('during load');
+    backend.resumeMessageLists();
+    await entering;
+    const contents = alice.getState().messages.map((message) => message.content);
+    assert.ok(contents.includes('during load'));
+  } finally {
+    backend.resumeMessageLists();
+    alice.shutdown();
+    bob.shutdown();
+    await backend.close();
+  }
+});
+
 test('reconnect re-issues join_room', async () => {
   const backend = await startFakeBackend();
   backend.seedUser('alice', 'secret');

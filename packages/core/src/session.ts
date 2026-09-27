@@ -97,6 +97,8 @@ export class SessionController {
   /** Non-null while enterRoom is loading history; keeps prior messages until apply. */
   private enteringRoom: string | null = null;
   private enterGeneration = 0;
+  /** Live frames that arrived while history for enteringRoom was in flight. */
+  private enterQueue: Array<{ kind: 'message' | 'delete'; message: MessageRecord }> = [];
 
   constructor(options: SessionControllerOptions) {
     this.state = {
@@ -417,6 +419,19 @@ export class SessionController {
     }
 
     const generation = ++this.enterGeneration;
+    this.enterQueue = [];
+    try {
+      await this.enterRoomGeneration(roomInput, generation);
+    } catch (error) {
+      if (generation === this.enterGeneration) {
+        this.enteringRoom = null;
+        this.enterQueue = [];
+      }
+      throw error;
+    }
+  }
+
+  private async enterRoomGeneration(roomInput: string, generation: number): Promise<void> {
     const rooms = await this.listRooms();
     if (generation !== this.enterGeneration) {
       return;
@@ -655,8 +670,10 @@ export class SessionController {
           this.emit('roomActivity', { room: incoming.room, message: incoming });
           return;
         }
-        // Avoid mixing live frames into the outgoing transcript while history loads.
+        // Hold live frames until history applies, then merge them in.
+        // Dropping them here loses anything posted after the history snapshot.
         if (this.enteringRoom) {
+          this.enterQueue.push({ kind: 'message', message: incoming });
           return;
         }
         this.displayMessage(incoming);
@@ -664,6 +681,10 @@ export class SessionController {
       }
 
       if (payload.type === 'message_deleted' && payload.message) {
+        if (this.enteringRoom && (!payload.message.room || payload.message.room === this.enteringRoom)) {
+          this.enterQueue.push({ kind: 'delete', message: payload.message });
+          return;
+        }
         this.applyTombstone(payload.message);
         return;
       }
@@ -975,15 +996,43 @@ export class SessionController {
     if (generation !== this.enterGeneration) {
       return;
     }
-    this.state.messages = messages;
+    const queued = this.enterQueue;
+    this.enterQueue = [];
+    const merged = messages.map((message) => ({ ...message }));
+    const indexById = new Map<number, number>();
+    merged.forEach((message, index) => {
+      if (message.id != null) {
+        indexById.set(message.id, index);
+      }
+    });
+    for (const event of queued) {
+      if (event.message.room && event.message.room !== this.state.room) {
+        continue;
+      }
+      if (event.kind === 'delete') {
+        const index = event.message.id != null ? indexById.get(event.message.id) : undefined;
+        if (index != null) {
+          merged[index] = { ...merged[index], ...event.message };
+        }
+        continue;
+      }
+      if (event.message.id != null && indexById.has(event.message.id)) {
+        continue;
+      }
+      if (event.message.id != null) {
+        indexById.set(event.message.id, merged.length);
+      }
+      merged.push(event.message);
+    }
+    this.state.messages = merged;
     this.displayedMessageIds.clear();
-    for (const message of messages) {
+    for (const message of merged) {
       if (message.id != null) {
         this.displayedMessageIds.add(message.id);
       }
     }
     this.enteringRoom = null;
-    this.emit('history', { messages });
+    this.emit('history', { messages: merged });
   }
 
   private displayMessage(message: MessageRecord): void {
