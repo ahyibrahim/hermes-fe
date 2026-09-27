@@ -30,19 +30,13 @@
   } from '$lib/ui';
   import { bindSfxUnlock, playSfx, unlockSfx } from '$lib/sfx';
   import { ScrollPin } from '$lib/chat/scroll-pin.svelte';
+  import { TranscriptBuffer } from '$lib/chat/transcript-buffer.svelte';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
-  import { onMount, tick } from 'svelte';
-
-  type TranscriptPhase = 'idle' | 'leaving' | 'entering';
+  import { onMount } from 'svelte';
 
   let rooms = $state<RoomRecord[]>([]);
   let directory = $state<PublicUser[]>([]);
   let online = $state<string[]>([]);
-  /** Rendered transcript buffer — held across room switches until history is ready. */
-  let displayMessages = $state<MessageRecord[]>([]);
-  let transcriptPhase = $state<TranscriptPhase>('idle');
-  let pendingRoom = $state<string | null>(null);
-  let roomSwitchGen = 0;
   let users = $state<string[]>([]);
   let status = $state<ConnectionStatus>('idle');
   let currentRoom = $state<string | null>(null);
@@ -67,8 +61,6 @@
   let deletingRoom = $state(false);
   let kickingId = $state<number | null>(null);
   let composerComponent: Composer | undefined = $state();
-  /** IDs allowed to play enter motion — live appends only, never room-history remounts. */
-  const liveEnterIds = new Set<number>();
   let roomsCollapsed = $state(false);
   let peopleCollapsed = $state(false);
   let phoneViewport = $state(false);
@@ -117,6 +109,7 @@
 
   const session = getSession();
   const pin = new ScrollPin(() => void markFocusedRead());
+  const buffer = new TranscriptBuffer(pin);
   const unreadTotal = $derived(rooms.reduce((sum, room) => sum + (room.unread_count ?? 0), 0));
   const tabTitle = $derived(unreadTotal > 0 ? `(${unreadTotal}) Hermes` : 'Hermes');
   const me = $derived(directory.find((person) => person.username === username) ?? null);
@@ -145,7 +138,7 @@
       })
   );
   const notifyOn = $derived(!notifyMuted);
-  const transcriptRows = $derived(groupTranscript(displayMessages));
+  const transcriptRows = $derived(groupTranscript(buffer.displayMessages));
   const addCandidates = $derived(
     people.filter(
       (person) =>
@@ -385,66 +378,11 @@
     const state = session.getState();
     // Hold the outgoing transcript while a room switch is in flight (session may
     // still briefly expose empty or stale messages until history applies).
-    if (pendingRoom) {
+    if (buffer.pendingRoom) {
       return;
     }
-    liveEnterIds.clear();
-    displayMessages = [...state.messages];
-  }
-
-  function clearDisplayTranscript(): void {
-    pendingRoom = null;
-    transcriptPhase = 'idle';
-    liveEnterIds.clear();
-    displayMessages = [];
-  }
-
-  function markLiveEnter(id: number): void {
-    liveEnterIds.add(id);
-  }
-
-  function pruneLiveEnterIds(messages: MessageRecord[]): void {
-    const keep = new Set(messages.map((message) => message.id));
-    for (const id of liveEnterIds) {
-      if (!keep.has(id)) {
-        liveEnterIds.delete(id);
-      }
-    }
-  }
-
-  function shouldAnimateEnter(id: number): boolean {
-    return liveEnterIds.has(id);
-  }
-
-  function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  async function commitTranscript(next: MessageRecord[], room: string, gen: number): Promise<void> {
-    const reduced = prefersReducedMotion();
-    const outMs = reduced ? 80 : motionMs.fast;
-    const inMs = reduced ? 80 : motionMs.base;
-
-    if (displayMessages.length > 0) {
-      transcriptPhase = 'leaving';
-      await sleep(outMs);
-    }
-    if (gen !== roomSwitchGen || (pendingRoom && pendingRoom !== room)) {
-      return;
-    }
-
-    displayMessages = next;
-    pendingRoom = null;
-    pin.stickToBottom = true;
-    pin.showJump = false;
-    liveEnterIds.clear();
-    transcriptPhase = 'entering';
-    await tick();
-    pin.pinToLatest('auto');
-    await sleep(inMs);
-    if (gen === roomSwitchGen && transcriptPhase === 'entering') {
-      transcriptPhase = 'idle';
-    }
+    buffer.liveEnterIds.clear();
+    buffer.displayMessages = [...state.messages];
   }
 
   function flash(message: string, isError = false): void {
@@ -670,27 +608,27 @@
     }
     try {
       if (slug !== currentRoom) {
-        const gen = ++roomSwitchGen;
-        pendingRoom = slug;
+        const gen = ++buffer.roomSwitchGen;
+        buffer.pendingRoom = slug;
         // Optimistic header/rail highlight while history loads.
         currentRoom = slug;
         await session.enterRoom(slug);
-        if (gen !== roomSwitchGen) {
+        if (gen !== buffer.roomSwitchGen) {
           return;
         }
         syncMetaFromSession();
         draft = loadDraft(slug);
         queueMicrotask(growComposer);
-        if (pendingRoom === slug) {
-          await commitTranscript([...session.getState().messages], slug, gen);
+        if (buffer.pendingRoom === slug) {
+          await buffer.commitTranscript([...session.getState().messages], slug, gen);
         }
       }
       clearUnread(slug);
       await session.markRoomRead(slug);
     } catch (error) {
-      if (pendingRoom === slug) {
-        pendingRoom = null;
-        transcriptPhase = 'idle';
+      if (buffer.pendingRoom === slug) {
+        buffer.pendingRoom = null;
+        buffer.transcriptPhase = 'idle';
         syncFromSession();
       }
       flash(error instanceof Error ? error.message : String(error), true);
@@ -885,7 +823,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          clearDisplayTranscript();
+          buffer.clearDisplayTranscript();
           closeRoomMenu();
         }
       }
@@ -911,7 +849,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          clearDisplayTranscript();
+          buffer.clearDisplayTranscript();
           closeRoomMenu();
         }
       }
@@ -939,8 +877,8 @@
   async function unsend(message: MessageRecord): Promise<void> {
     try {
       await session.unsendMessage(message.id);
-      if (!pendingRoom) {
-        displayMessages = [...session.getState().messages];
+      if (!buffer.pendingRoom) {
+        buffer.displayMessages = [...session.getState().messages];
       }
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
@@ -1008,7 +946,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          clearDisplayTranscript();
+          buffer.clearDisplayTranscript();
         }
       }
       closeRoomMenu();
@@ -1170,8 +1108,8 @@
   }
 
   pin.track(
-    () => displayMessages,
-    () => transcriptPhase
+    () => buffer.displayMessages,
+    () => buffer.transcriptPhase
   );
 
   onMount(() => {
@@ -1268,9 +1206,9 @@
         pin.showJump = false;
         syncMetaFromSession();
         // selectRoom owns the dual-buffer commit while a switch is pending.
-        if (!pendingRoom) {
-          liveEnterIds.clear();
-          displayMessages = [...session.getState().messages];
+        if (!buffer.pendingRoom) {
+          buffer.liveEnterIds.clear();
+          buffer.displayMessages = [...session.getState().messages];
         }
         if (currentRoom) {
           clearUnread(currentRoom);
@@ -1278,10 +1216,10 @@
       }),
       session.on('message', (message) => {
         syncMetaFromSession();
-        if (!pendingRoom) {
-          markLiveEnter(message.id);
-          displayMessages = [...session.getState().messages];
-          pruneLiveEnterIds(displayMessages);
+        if (!buffer.pendingRoom) {
+          buffer.markLiveEnter(message.id);
+          buffer.displayMessages = [...session.getState().messages];
+          buffer.pruneLiveEnterIds(buffer.displayMessages);
         }
         if (message.sender && (!message.room || message.room === currentRoom)) {
           typingUsers = typingUsers.filter((name) => name !== message.sender);
@@ -1355,8 +1293,8 @@
         maybeReceiveCue(room, message);
       }),
       session.on('messageDeleted', () => {
-        if (!pendingRoom) {
-          displayMessages = [...session.getState().messages];
+        if (!buffer.pendingRoom) {
+          buffer.displayMessages = [...session.getState().messages];
         }
       }),
       session.on('userUpdated', (user) => {
@@ -1377,7 +1315,7 @@
             await selectRoom(next.slug);
           } else {
             currentRoom = null;
-            clearDisplayTranscript();
+            buffer.clearDisplayTranscript();
           }
           closeRoomMenu();
         }
@@ -1390,7 +1328,7 @@
             void selectRoom(next.slug);
           } else {
             currentRoom = null;
-            clearDisplayTranscript();
+            buffer.clearDisplayTranscript();
           }
           closeRoomMenu();
         }
@@ -1735,10 +1673,10 @@
 
     <TranscriptView
       bind:scroller={pin.scroller}
-      {displayMessages}
+      displayMessages={buffer.displayMessages}
       {transcriptRows}
-      {transcriptPhase}
-      {pendingRoom}
+      transcriptPhase={buffer.transcriptPhase}
+      pendingRoom={buffer.pendingRoom}
       {banner}
       {bannerError}
       showJump={pin.showJump}
@@ -1748,7 +1686,7 @@
       onTranscriptScroll={pin.onTranscriptScroll}
       onJumpToLatest={pin.jumpToLatest}
       {lookupUser}
-      {shouldAnimateEnter}
+      shouldAnimateEnter={buffer.shouldAnimateEnter}
       {onDownload}
       onUnsend={unsend}
       onResetPassword={resetPasswordFor}
