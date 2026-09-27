@@ -1,11 +1,16 @@
-export type MessagePart =
+export type InlinePart =
   | { type: 'text'; value: string }
   | { type: 'mention'; username: string }
-  | { type: 'code'; value: string; lang?: string }
   | { type: 'inline_code'; value: string }
   | { type: 'bold'; value: string }
   | { type: 'italic'; value: string }
+  | { type: 'strike'; value: string }
   | { type: 'url'; value: string };
+
+export type MessagePart =
+  | InlinePart
+  | { type: 'code'; value: string; lang?: string }
+  | { type: 'list'; ordered: boolean; start?: number; items: InlinePart[][] };
 
 const TRAILING_URL_PUNCT = /[),.;:!?]+$/;
 
@@ -82,13 +87,13 @@ function findWrapped(
   return { index: start, value: text.slice(innerStart, close), end: close + marker.length };
 }
 
-function parsePlain(text: string, known: string[]): MessagePart[] {
+function parsePlain(text: string, known: string[]): InlinePart[] {
   if (!text) {
     return [];
   }
 
   const names = [...known].sort((a, b) => b.length - a.length);
-  const parts: MessagePart[] = [];
+  const parts: InlinePart[] = [];
   let cursor = 0;
 
   while (cursor < text.length) {
@@ -96,6 +101,7 @@ function parsePlain(text: string, known: string[]): MessagePart[] {
     const url = findUrl(text, cursor);
     const bold = findWrapped(text, cursor, '**');
     const italic = findWrapped(text, cursor, '*');
+    const strike = findWrapped(text, cursor, '~~');
     const code = findWrapped(text, cursor, '`');
 
     const candidates = [
@@ -105,6 +111,7 @@ function parsePlain(text: string, known: string[]): MessagePart[] {
       italic && (!bold || italic.index < bold.index)
         ? { kind: 'italic' as const, index: italic.index, wrap: italic }
         : null,
+      strike ? { kind: 'strike' as const, index: strike.index, wrap: strike } : null,
       code ? { kind: 'inline_code' as const, index: code.index, wrap: code } : null,
     ].filter((row): row is NonNullable<typeof row> => row !== null);
 
@@ -143,6 +150,12 @@ function parsePlain(text: string, known: string[]): MessagePart[] {
       continue;
     }
 
+    if (next.kind === 'strike') {
+      parts.push({ type: 'strike', value: next.wrap.value });
+      cursor = next.wrap.end;
+      continue;
+    }
+
     parts.push({ type: 'inline_code', value: next.wrap.value });
     cursor = next.wrap.end;
   }
@@ -150,10 +163,78 @@ function parsePlain(text: string, known: string[]): MessagePart[] {
   return parts;
 }
 
+const BULLET_LINE = /^ {0,3}[-*] +(\S.*)$/;
+const ORDERED_LINE = /^ {0,3}(\d{1,9})\. +(\S.*)$/;
+
+function listLine(line: string): { ordered: boolean; number?: number; text: string } | null {
+  const bullet = BULLET_LINE.exec(line);
+  if (bullet) {
+    return { ordered: false, text: bullet[1] };
+  }
+  const ordered = ORDERED_LINE.exec(line);
+  if (ordered) {
+    return { ordered: true, number: Number(ordered[1]), text: ordered[2] };
+  }
+  return null;
+}
+
+/**
+ * Consecutive `- ` / `* ` or `1. ` lines become a list; everything else is
+ * inline text. A list owns the line breaks around it, since it renders as a
+ * block.
+ */
+function parseBlocks(text: string, known: string[]): MessagePart[] {
+  const lines = text.split('\n');
+  if (!lines.some((line) => listLine(line))) {
+    return parsePlain(text, known);
+  }
+
+  const parts: MessagePart[] = [];
+  let pending: string[] = [];
+  let list: { ordered: boolean; start?: number; items: string[] } | null = null;
+
+  const flushText = (): void => {
+    if (pending.length > 0) {
+      parts.push(...parsePlain(pending.join('\n'), known));
+      pending = [];
+    }
+  };
+  const flushList = (): void => {
+    if (list) {
+      parts.push({
+        type: 'list',
+        ordered: list.ordered,
+        ...(list.ordered && list.start !== undefined && list.start !== 1 ? { start: list.start } : {}),
+        items: list.items.map((item) => parsePlain(item, known)),
+      });
+      list = null;
+    }
+  };
+
+  for (const line of lines) {
+    const item = listLine(line);
+    if (!item) {
+      flushList();
+      pending.push(line);
+      continue;
+    }
+    if (!list || list.ordered !== item.ordered) {
+      flushList();
+      flushText();
+      list = { ordered: item.ordered, start: item.number, items: [] };
+    }
+    list.items.push(item.text);
+  }
+  flushList();
+  flushText();
+
+  return parts;
+}
+
 /**
  * Split a message into mentions, http(s) URLs, fenced code (legacy), inline
- * `code`, *italic*, and **bold**. Mentions, URLs, and emphasis are not
- * parsed inside fences or inline code.
+ * `code`, *italic*, **bold**, ~~strike~~, and `-` / `*` / `1.` lists.
+ * Mentions, URLs, and emphasis are not parsed inside fences or inline code.
  */
 export function parseMessageBody(content: string, knownUsers: Iterable<string> = []): MessagePart[] {
   const known = [...new Set([...knownUsers].filter(Boolean))];
@@ -163,12 +244,12 @@ export function parseMessageBody(content: string, knownUsers: Iterable<string> =
   while (i < content.length) {
     const start = content.indexOf('```', i);
     if (start === -1) {
-      parts.push(...parsePlain(content.slice(i), known));
+      parts.push(...parseBlocks(content.slice(i), known));
       break;
     }
 
     if (start > i) {
-      parts.push(...parsePlain(content.slice(i, start), known));
+      parts.push(...parseBlocks(content.slice(i, start), known));
     }
 
     const afterOpener = start + 3;

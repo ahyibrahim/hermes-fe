@@ -2065,6 +2065,19 @@ button {
   overflow-wrap: anywhere;
 }
 
+.msg-list {
+  margin: 0.15rem 0;
+  padding-left: 1.35rem;
+}
+
+.msg-list li + li {
+  margin-top: 0.1rem;
+}
+
+.msg-body s {
+  color: var(--text-muted);
+}
+
 .watch-link-block {
   display: inline-flex;
   flex-direction: column;
