@@ -1291,8 +1291,23 @@
         phoneLayoutTimer = null;
       }
       if (!next) {
-        phoneLayout = false;
-        applyPhoneRails(false);
+        const drawerOpen = phoneLayout && (!roomsCollapsed || !peopleCollapsed);
+        if (!drawerOpen) {
+          phoneLayout = false;
+          applyPhoneRails(false);
+          return;
+        }
+        // Slide the open drawer shut before the rails rejoin the grid.
+        roomsCollapsed = true;
+        peopleCollapsed = true;
+        phoneLayoutTimer = setTimeout(
+          () => {
+            phoneLayoutTimer = null;
+            phoneLayout = false;
+            applyPhoneRails(false);
+          },
+          prefersReducedMotion() ? 80 : motionMs.slow
+        );
         return;
       }
       const railsOpen = !roomsCollapsed || !peopleCollapsed;

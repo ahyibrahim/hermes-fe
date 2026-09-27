@@ -136,4 +136,23 @@ describe('ChatShell', () => {
     await waitFor(() => expect(shell.classList.contains('rooms-collapsed')).toBe(true));
     expect(screen.getAllByRole('button', { name: 'Expand rooms' })).toHaveLength(1);
   });
+
+  test('widening past the phone breakpoint slides an open drawer shut before rejoining the grid', async () => {
+    setPhoneViewport(true);
+    world = await bootWorld('alice');
+    render(ChatShell);
+    await waitFor(() => expect(world?.me.getState().room).toBe('general'));
+    const shell = document.querySelector('.shell') as HTMLElement;
+
+    await fireEvent.click(within(roomsRail()).getByRole('button', { name: 'Expand rooms' }));
+    await waitFor(() => expect(shell.classList.contains('rooms-collapsed')).toBe(false));
+
+    setPhoneViewport(false);
+    await waitFor(() => expect(shell.classList.contains('rooms-collapsed')).toBe(true));
+    expect(shell.classList.contains('phone'), 'the drawer closes while still floating').toBe(true);
+
+    await waitFor(() => expect(shell.classList.contains('phone')).toBe(false));
+    expect(shell.classList.contains('rooms-collapsed'), 'desktop rails come back as saved').toBe(false);
+    expect(shell.classList.contains('people-collapsed')).toBe(false);
+  });
 });
