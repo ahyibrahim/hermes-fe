@@ -10,9 +10,10 @@
   "scripts": {
     "build": "npm run build --workspace @hermes/core && npm run build --workspace @hermes/cli && npm run build --workspace @hermes/web",
     "clean": "npm run clean --workspaces --if-present",
-    "test": "npm run build && npm run test:core && npm run test:cli && npm run check:browser-safe && npm run check:web",
+    "test": "npm run build && npm run test:core && npm run test:cli && npm run test:web && npm run check:browser-safe && npm run check:web",
     "test:core": "node --test packages/core/dist/",
     "test:cli": "node --test apps/cli/dist/",
+    "test:web": "npm run test --workspace @hermes/web",
     "check:browser-safe": "node scripts/check-core-imports.mjs",
     "check:web": "npm run check --workspace @hermes/web && node scripts/check-web-build.mjs",
     "smoke": "npm run build && node scripts/smoke-cli.mjs",
