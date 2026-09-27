@@ -82,7 +82,11 @@ export interface SessionControllerOptions {
   ws: HermesWsClient;
   tokens: TokenStorageAdapter;
   reconnectDelayMs?: number;
+  /** Most recent message ids kept for de-duplicating late WebSocket echoes. */
+  displayedIdLimit?: number;
 }
+
+const DEFAULT_DISPLAYED_ID_LIMIT = 5000;
 
 export class SessionController {
   readonly state: ClientState;
@@ -90,6 +94,8 @@ export class SessionController {
   private readonly ws: HermesWsClient;
   private readonly tokens: TokenStorageAdapter;
   private readonly reconnectDelayMs: number;
+  private readonly displayedIdLimit: number;
+  /** Insertion-ordered, so the first entry is the oldest when trimming. */
   private readonly displayedMessageIds = new Set<number>();
   private readonly listeners = new Map<keyof SessionEventMap, Set<SessionListener<keyof SessionEventMap>>>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -113,6 +119,7 @@ export class SessionController {
     this.ws = options.ws;
     this.tokens = options.tokens;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1500;
+    this.displayedIdLimit = Math.max(1, options.displayedIdLimit ?? DEFAULT_DISPLAYED_ID_LIMIT);
     this.bindSocket();
   }
 
@@ -1028,7 +1035,7 @@ export class SessionController {
     this.displayedMessageIds.clear();
     for (const message of merged) {
       if (message.id != null) {
-        this.displayedMessageIds.add(message.id);
+        this.rememberDisplayed(message.id);
       }
     }
     this.enteringRoom = null;
@@ -1041,11 +1048,27 @@ export class SessionController {
         return;
       }
 
-      this.displayedMessageIds.add(message.id);
+      this.rememberDisplayed(message.id);
     }
 
     this.state.messages.push(message);
     this.emit('message', message);
+  }
+
+  private rememberDisplayed(id: number): void {
+    this.displayedMessageIds.add(id);
+    while (this.displayedMessageIds.size > this.displayedIdLimit) {
+      const oldest = this.displayedMessageIds.values().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      this.displayedMessageIds.delete(oldest);
+    }
+  }
+
+  /** Size of the de-duplication window; exposed for tests. */
+  get displayedIdCount(): number {
+    return this.displayedMessageIds.size;
   }
 
   private applyTombstone(message: MessageRecord): void {
