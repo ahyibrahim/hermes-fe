@@ -94,7 +94,6 @@ export class HermesWsClient {
   private lastError: Error | null = null;
   private connectPromise: Promise<void> | null = null;
   private token: string | null = null;
-  private closedByUs = false;
 
   constructor(
     private readonly baseUrl: string,
@@ -114,15 +113,15 @@ export class HermesWsClient {
 
     this.status = 'connecting';
     this.lastError = null;
-    this.closedByUs = false;
 
     this.connectPromise = new Promise((resolve, reject) => {
       const socketUrl = `${toSocketUrl(this.baseUrl)}/ws?token=${encodeURIComponent(token)}`;
       let handshakeStatus: number | undefined;
       let settled = false;
+      let socket: SocketHandle;
 
       try {
-        this.socket = this.transport.open(socketUrl, token);
+        socket = this.transport.open(socketUrl, token);
       } catch (error) {
         this.status = 'error';
         this.lastError = error instanceof Error ? error : new Error(String(error));
@@ -131,9 +130,17 @@ export class HermesWsClient {
         return;
       }
 
-      this.attachSocketListeners(this.socket);
+      this.socket = socket;
+      // Events from a socket that close() dropped, or that a later connect()
+      // replaced, can still arrive; they must not touch the current socket.
+      const stale = (): boolean => this.socket !== socket;
 
-      this.socket.onOpen(() => {
+      this.attachSocketListeners(socket, stale);
+
+      socket.onOpen(() => {
+        if (stale()) {
+          return;
+        }
         this.status = 'open';
         settled = true;
         resolve();
@@ -141,8 +148,8 @@ export class HermesWsClient {
         this.openListeners.forEach((listener) => listener());
       });
 
-      this.socket.onError((error) => {
-        if (this.status === 'open' || settled) {
+      socket.onError((error) => {
+        if (stale() || this.status === 'open' || settled) {
           return;
         }
 
@@ -156,8 +163,8 @@ export class HermesWsClient {
         this.connectPromise = null;
       });
 
-      this.socket.onClose((info) => {
-        if (this.closedByUs) {
+      socket.onClose((info) => {
+        if (stale()) {
           return;
         }
 
@@ -189,8 +196,11 @@ export class HermesWsClient {
     });
   }
 
-  private attachSocketListeners(socket: SocketHandle): void {
+  private attachSocketListeners(socket: SocketHandle, stale: () => boolean): void {
     socket.onMessage((data) => {
+      if (stale()) {
+        return;
+      }
       try {
         const payload = JSON.parse(data) as WsIncomingMessage;
         this.messageListeners.forEach((listener) => listener(payload));
@@ -269,7 +279,6 @@ export class HermesWsClient {
   }
 
   close(): void {
-    this.closedByUs = true;
     this.socket?.close();
     this.socket = null;
     this.status = 'closed';
