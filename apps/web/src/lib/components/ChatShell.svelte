@@ -29,19 +29,15 @@
     writeNotifyMuted,
   } from '$lib/ui';
   import { bindSfxUnlock, playSfx, unlockSfx } from '$lib/sfx';
+  import { ScrollPin } from '$lib/chat/scroll-pin.svelte';
+  import { bindSessionListeners, type WatchView } from '$lib/chat/session-listeners';
+  import { TranscriptBuffer } from '$lib/chat/transcript-buffer.svelte';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
-  import { onMount, tick } from 'svelte';
-
-  type TranscriptPhase = 'idle' | 'leaving' | 'entering';
+  import { onMount } from 'svelte';
 
   let rooms = $state<RoomRecord[]>([]);
   let directory = $state<PublicUser[]>([]);
   let online = $state<string[]>([]);
-  /** Rendered transcript buffer — held across room switches until history is ready. */
-  let displayMessages = $state<MessageRecord[]>([]);
-  let transcriptPhase = $state<TranscriptPhase>('idle');
-  let pendingRoom = $state<string | null>(null);
-  let roomSwitchGen = 0;
   let users = $state<string[]>([]);
   let status = $state<ConnectionStatus>('idle');
   let currentRoom = $state<string | null>(null);
@@ -66,13 +62,6 @@
   let deletingRoom = $state(false);
   let kickingId = $state<number | null>(null);
   let composerComponent: Composer | undefined = $state();
-  let scroller: HTMLDivElement | undefined = $state();
-  let stickToBottom = $state(true);
-  let showJump = $state(false);
-  let ignoreScroll = false;
-  let pinScrollTimer: ReturnType<typeof setTimeout> | null = null;
-  /** IDs allowed to play enter motion — live appends only, never room-history remounts. */
-  const liveEnterIds = new Set<number>();
   let roomsCollapsed = $state(false);
   let peopleCollapsed = $state(false);
   let phoneViewport = $state(false);
@@ -91,18 +80,7 @@
   let callToast = $state<{ room: string; user: string } | null>(null);
   let sendFlash = $state(false);
   let sendFlashTimer: ReturnType<typeof setTimeout> | null = null;
-  let watch = $state<{
-    room: string;
-    videoId: string;
-    url: string;
-    host: string;
-    playing: boolean;
-    position: number;
-    rate: number;
-    updatedAt: number;
-    users: string[];
-    open: boolean;
-  } | null>(null);
+  let watch = $state<WatchView | null>(null);
   let watchDenied = $state('');
   let watchDeniedTimer: ReturnType<typeof setTimeout> | undefined;
   let watchIntent = $state<'start' | 'join' | null>(null);
@@ -120,6 +98,8 @@
   let mesh = $state.raw<VoiceMesh | undefined>();
 
   const session = getSession();
+  const pin = new ScrollPin(() => void markFocusedRead());
+  const buffer = new TranscriptBuffer(pin);
   const unreadTotal = $derived(rooms.reduce((sum, room) => sum + (room.unread_count ?? 0), 0));
   const tabTitle = $derived(unreadTotal > 0 ? `(${unreadTotal}) Hermes` : 'Hermes');
   const me = $derived(directory.find((person) => person.username === username) ?? null);
@@ -148,7 +128,7 @@
       })
   );
   const notifyOn = $derived(!notifyMuted);
-  const transcriptRows = $derived(groupTranscript(displayMessages));
+  const transcriptRows = $derived(groupTranscript(buffer.displayMessages));
   const addCandidates = $derived(
     people.filter(
       (person) =>
@@ -280,7 +260,7 @@
     if (typeof document !== 'undefined' && document.hidden) {
       return false;
     }
-    return stickToBottom;
+    return pin.stickToBottom;
   }
 
   function shouldCountUnread(slug: string, message: MessageRecord): boolean {
@@ -388,66 +368,11 @@
     const state = session.getState();
     // Hold the outgoing transcript while a room switch is in flight (session may
     // still briefly expose empty or stale messages until history applies).
-    if (pendingRoom) {
+    if (buffer.pendingRoom) {
       return;
     }
-    liveEnterIds.clear();
-    displayMessages = [...state.messages];
-  }
-
-  function clearDisplayTranscript(): void {
-    pendingRoom = null;
-    transcriptPhase = 'idle';
-    liveEnterIds.clear();
-    displayMessages = [];
-  }
-
-  function markLiveEnter(id: number): void {
-    liveEnterIds.add(id);
-  }
-
-  function pruneLiveEnterIds(messages: MessageRecord[]): void {
-    const keep = new Set(messages.map((message) => message.id));
-    for (const id of liveEnterIds) {
-      if (!keep.has(id)) {
-        liveEnterIds.delete(id);
-      }
-    }
-  }
-
-  function shouldAnimateEnter(id: number): boolean {
-    return liveEnterIds.has(id);
-  }
-
-  function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  async function commitTranscript(next: MessageRecord[], room: string, gen: number): Promise<void> {
-    const reduced = prefersReducedMotion();
-    const outMs = reduced ? 80 : motionMs.fast;
-    const inMs = reduced ? 80 : motionMs.base;
-
-    if (displayMessages.length > 0) {
-      transcriptPhase = 'leaving';
-      await sleep(outMs);
-    }
-    if (gen !== roomSwitchGen || (pendingRoom && pendingRoom !== room)) {
-      return;
-    }
-
-    displayMessages = next;
-    pendingRoom = null;
-    stickToBottom = true;
-    showJump = false;
-    liveEnterIds.clear();
-    transcriptPhase = 'entering';
-    await tick();
-    pinToLatest('auto');
-    await sleep(inMs);
-    if (gen === roomSwitchGen && transcriptPhase === 'entering') {
-      transcriptPhase = 'idle';
-    }
+    buffer.liveEnterIds.clear();
+    buffer.displayMessages = [...state.messages];
   }
 
   function flash(message: string, isError = false): void {
@@ -584,76 +509,6 @@
     }
   }
 
-  function atBottom(): boolean {
-    if (!scroller) {
-      return true;
-    }
-    return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
-  }
-
-  function onTranscriptScroll(): void {
-    if (!scroller || ignoreScroll) {
-      return;
-    }
-    const wasCaughtUp = stickToBottom;
-    stickToBottom = atBottom();
-    showJump = !stickToBottom;
-    if (!wasCaughtUp && stickToBottom) {
-      void markFocusedRead();
-    }
-  }
-
-  function pinToLatest(behavior: ScrollBehavior = 'auto'): void {
-    if (!scroller || !stickToBottom) {
-      return;
-    }
-    ignoreScroll = true;
-    if (pinScrollTimer) {
-      clearTimeout(pinScrollTimer);
-      pinScrollTimer = null;
-    }
-
-    const finish = (): void => {
-      ignoreScroll = false;
-      showJump = false;
-      pinScrollTimer = null;
-    };
-
-    const useSmooth = behavior === 'smooth' && !prefersReducedMotion();
-    if (useSmooth) {
-      const apply = (): void => {
-        if (scroller && stickToBottom) {
-          scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
-        }
-      };
-      apply();
-      requestAnimationFrame(apply);
-      pinScrollTimer = setTimeout(finish, motionMs.slow + 80);
-      return;
-    }
-
-    const apply = (): void => {
-      if (scroller && stickToBottom) {
-        scroller.scrollTop = scroller.scrollHeight;
-      }
-    };
-    apply();
-    requestAnimationFrame(() => {
-      apply();
-      requestAnimationFrame(() => {
-        apply();
-        finish();
-      });
-    });
-  }
-
-  function jumpToLatest(): void {
-    stickToBottom = true;
-    showJump = false;
-    pinToLatest('smooth');
-    void markFocusedRead();
-  }
-
   async function markFocusedRead(): Promise<void> {
     if (!currentRoom || !isCaughtUp(currentRoom)) {
       return;
@@ -730,8 +585,8 @@
       peopleCollapsed = true;
     }
     banner = '';
-    stickToBottom = true;
-    showJump = false;
+    pin.stickToBottom = true;
+    pin.showJump = false;
     if (currentRoom && currentRoom !== slug) {
       saveDraft(currentRoom, draft);
       stopLocalTyping();
@@ -743,27 +598,27 @@
     }
     try {
       if (slug !== currentRoom) {
-        const gen = ++roomSwitchGen;
-        pendingRoom = slug;
+        const gen = ++buffer.roomSwitchGen;
+        buffer.pendingRoom = slug;
         // Optimistic header/rail highlight while history loads.
         currentRoom = slug;
         await session.enterRoom(slug);
-        if (gen !== roomSwitchGen) {
+        if (gen !== buffer.roomSwitchGen) {
           return;
         }
         syncMetaFromSession();
         draft = loadDraft(slug);
         queueMicrotask(growComposer);
-        if (pendingRoom === slug) {
-          await commitTranscript([...session.getState().messages], slug, gen);
+        if (buffer.pendingRoom === slug) {
+          await buffer.commitTranscript([...session.getState().messages], slug, gen);
         }
       }
       clearUnread(slug);
       await session.markRoomRead(slug);
     } catch (error) {
-      if (pendingRoom === slug) {
-        pendingRoom = null;
-        transcriptPhase = 'idle';
+      if (buffer.pendingRoom === slug) {
+        buffer.pendingRoom = null;
+        buffer.transcriptPhase = 'idle';
         syncFromSession();
       }
       flash(error instanceof Error ? error.message : String(error), true);
@@ -958,7 +813,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          clearDisplayTranscript();
+          buffer.clearDisplayTranscript();
           closeRoomMenu();
         }
       }
@@ -984,7 +839,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          clearDisplayTranscript();
+          buffer.clearDisplayTranscript();
           closeRoomMenu();
         }
       }
@@ -1012,8 +867,8 @@
   async function unsend(message: MessageRecord): Promise<void> {
     try {
       await session.unsendMessage(message.id);
-      if (!pendingRoom) {
-        displayMessages = [...session.getState().messages];
+      if (!buffer.pendingRoom) {
+        buffer.displayMessages = [...session.getState().messages];
       }
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
@@ -1081,7 +936,7 @@
           await selectRoom(next.slug);
         } else {
           currentRoom = null;
-          clearDisplayTranscript();
+          buffer.clearDisplayTranscript();
         }
       }
       closeRoomMenu();
@@ -1193,8 +1048,8 @@
       if (currentRoom) {
         clearDraft(currentRoom);
       }
-      stickToBottom = true;
-      showJump = false;
+      pin.stickToBottom = true;
+      pin.showJump = false;
       growComposer();
       flashSendControl();
       unlockSfx();
@@ -1242,38 +1097,10 @@
     return value;
   }
 
-  $effect(() => {
-    displayMessages;
-    if (!scroller) {
-      return;
-    }
-    if (stickToBottom) {
-      const behavior: ScrollBehavior =
-        transcriptPhase === 'idle' ? 'smooth' : 'auto';
-      void tick().then(() => pinToLatest(behavior));
-    } else {
-      showJump = true;
-    }
-  });
-
-  $effect(() => {
-    const root = scroller;
-    if (!root) {
-      return;
-    }
-    const inner = root.firstElementChild;
-    if (!(inner instanceof HTMLElement)) {
-      return;
-    }
-    const ro = new ResizeObserver(() => {
-      if (stickToBottom) {
-        pinToLatest('auto');
-      }
-    });
-    ro.observe(inner);
-    ro.observe(root);
-    return () => ro.disconnect();
-  });
+  pin.track(
+    () => buffer.displayMessages,
+    () => buffer.transcriptPhase
+  );
 
   onMount(() => {
     const media = window.matchMedia(PHONE_MAX_WIDTH_MQ);
@@ -1291,8 +1118,23 @@
         phoneLayoutTimer = null;
       }
       if (!next) {
-        phoneLayout = false;
-        applyPhoneRails(false);
+        const drawerOpen = phoneLayout && (!roomsCollapsed || !peopleCollapsed);
+        if (!drawerOpen) {
+          phoneLayout = false;
+          applyPhoneRails(false);
+          return;
+        }
+        // Slide the open drawer shut before the rails rejoin the grid.
+        roomsCollapsed = true;
+        peopleCollapsed = true;
+        phoneLayoutTimer = setTimeout(
+          () => {
+            phoneLayoutTimer = null;
+            phoneLayout = false;
+            applyPhoneRails(false);
+          },
+          prefersReducedMotion() ? 80 : motionMs.slow
+        );
         return;
       }
       const railsOpen = !roomsCollapsed || !peopleCollapsed;
@@ -1348,241 +1190,81 @@
       }
     });
     syncFromSession();
-    const offs = [
-      session.on('history', () => {
-        stickToBottom = true;
-        showJump = false;
-        syncMetaFromSession();
-        // selectRoom owns the dual-buffer commit while a switch is pending.
-        if (!pendingRoom) {
-          liveEnterIds.clear();
-          displayMessages = [...session.getState().messages];
-        }
-        if (currentRoom) {
-          clearUnread(currentRoom);
-        }
-      }),
-      session.on('message', (message) => {
-        syncMetaFromSession();
-        if (!pendingRoom) {
-          markLiveEnter(message.id);
-          displayMessages = [...session.getState().messages];
-          pruneLiveEnterIds(displayMessages);
-        }
-        if (message.sender && (!message.room || message.room === currentRoom)) {
-          typingUsers = typingUsers.filter((name) => name !== message.sender);
-        }
-        if (message.room) {
-          if (shouldCountUnread(message.room, message)) {
-            bumpUnread(message.room);
-          } else if (isCaughtUp(message.room)) {
-            void session.markRoomRead(message.room);
-          }
-        }
-        if (message.room) {
-          rooms = rooms.map((entry) =>
-            entry.slug === message.room
-              ? {
-                  ...entry,
-                  last_message: {
-                    id: message.id,
-                    sender: message.sender,
-                    content: message.content.slice(0, 80),
-                    deleted: false,
-                    file: message.file_id != null && message.file_id !== '',
-                  },
-                }
-              : entry
-          );
-        }
-        maybeNotify(message.room, message);
-        maybeReceiveCue(message.room, message);
-      }),
-      session.on('roomActivity', ({ room, message }) => {
-        if (message.deleted_at) {
-          rooms = rooms.map((entry) =>
-            entry.slug === room
-              ? {
-                  ...entry,
-                  last_message: {
-                    id: message.id,
-                    sender: message.sender,
-                    content: '',
-                    deleted: true,
-                    file: false,
-                  },
-                }
-              : entry
-          );
-          return;
-        }
-        if (!rooms.some((entry) => entry.slug === room)) {
-          void loadRooms();
-        } else {
-          if (shouldCountUnread(room, message)) {
-            bumpUnread(room);
-          }
-          rooms = rooms.map((entry) =>
-            entry.slug === room
-              ? {
-                  ...entry,
-                  last_message: {
-                    id: message.id,
-                    sender: message.sender,
-                    content: message.content.slice(0, 80),
-                    deleted: false,
-                    file: message.file_id != null && message.file_id !== '',
-                  },
-                }
-              : entry
-          );
-        }
-        maybeNotify(room, message);
-        maybeReceiveCue(room, message);
-      }),
-      session.on('messageDeleted', () => {
-        if (!pendingRoom) {
-          displayMessages = [...session.getState().messages];
-        }
-      }),
-      session.on('userUpdated', (user) => {
-        directory = directory.map((entry) =>
-          entry.id === user.id || entry.username === user.username ? { ...entry, ...user } : entry
-        );
-      }),
-      session.on('memberAdded', () => {
-        void loadRooms();
-      }),
-      session.on('memberRemoved', async ({ room, users: removed }) => {
-        const meName = session.getState().username;
-        const wasKicked = Boolean(meName && removed.includes(meName));
-        await loadRooms();
-        if (wasKicked && currentRoom === room) {
-          const next = rooms.find((entry) => entry.slug === 'general') ?? rooms[0];
-          if (next) {
-            await selectRoom(next.slug);
-          } else {
-            currentRoom = null;
-            clearDisplayTranscript();
-          }
-          closeRoomMenu();
-        }
-      }),
-      session.on('roomDeleted', ({ room }) => {
-        rooms = rooms.filter((entry) => entry.slug !== room);
-        if (currentRoom === room) {
-          const next = rooms.find((entry) => entry.slug === 'general') ?? rooms[0];
-          if (next) {
-            void selectRoom(next.slug);
-          } else {
-            currentRoom = null;
-            clearDisplayTranscript();
-          }
-          closeRoomMenu();
-        }
-      }),
-      session.on('callStarted', ({ room, user }) => {
-        if (user === session.getState().username) {
-          return;
-        }
-        if (room === session.getState().room) {
-          return;
-        }
-        callToast = { room, user };
-      }),
-      session.on('watchStarted', (payload) => {
-        const meName = session.getState().username;
-        const viewing = payload.room === session.getState().room;
-        const wasOpen = watch?.open && watch.room === payload.room;
-        applyWatchSnapshot(payload, wasOpen || watchIntent !== null);
-        if (watchIntent === 'start' && payload.host === meName) {
-          playSfx('watch-start');
-        } else if (viewing || watchIntent === 'join') {
-          // Someone else started while you view the room, or you joined via start-as-join.
-          if (payload.host !== meName || watchIntent === 'join') {
-            playSfx('watch-join');
-          }
-        }
-        if (watchIntent) {
-          watch = watch ? { ...watch, open: true } : watch;
-          watchIntent = null;
-        }
-      }),
-      session.on('watchState', (payload) => {
-        const meName = session.getState().username;
-        const wasOpen = watch?.open && watch.room === payload.room;
-        const intent = watchIntent;
-        const joining = intent === 'join' || intent === 'start';
-        applyWatchSnapshot(payload, wasOpen || joining);
-        if (intent === 'start' && payload.host === meName) {
-          playSfx('watch-start');
-          watchIntent = null;
-          if (watch) {
-            watch = { ...watch, open: true };
-          }
-        } else if (joining) {
-          // Explicit join, or start-as-join when a session already existed.
-          playSfx('watch-join');
-          watchIntent = null;
-          if (watch) {
-            watch = { ...watch, open: true };
-          }
-        }
-      }),
-      session.on('watchPeers', ({ room, users: peerUsers, host }) => {
-        if (!watch || watch.room !== room) {
-          return;
-        }
-        watch = { ...watch, users: [...peerUsers], host };
-      }),
-      session.on('watchEnded', ({ room, user: endedBy }) => {
-        const active = watch;
-        if (!active || active.room !== room) {
-          return;
-        }
-        const wasIn = active.open || active.users.includes(username ?? '');
-        if (wasIn) {
-          playSfx('watch-end');
-        }
-        void endedBy;
-        watch = null;
-        watchIntent = null;
-      }),
-      session.on('watchControlDenied', ({ action, reason }) => {
-        flashWatchDenied(reason ? `${action}: ${reason}` : `Cannot ${action}`);
-      }),
-      session.on('leftWatch', ({ room }) => {
-        if (watch?.room === room) {
-          watch = { ...watch, open: false };
-        }
-        watchIntent = null;
-      }),
-      session.on('presence', () => {
-        const state = session.getState();
-        users = [...state.roomUsers].sort((a, b) => a.localeCompare(b));
-        void loadDirectory();
-      }),
-      session.on('typing', ({ room, user, active }) => {
-        if (room !== currentRoom || user === username) {
-          return;
-        }
-        if (active) {
-          if (!typingUsers.includes(user)) {
-            typingUsers = [...typingUsers, user].sort((a, b) => a.localeCompare(b));
-          }
-        } else {
-          typingUsers = typingUsers.filter((name) => name !== user);
-        }
-      }),
-      session.on('status', ({ status: next }) => {
+    const offs = bindSessionListeners(session, {
+      pin,
+      buffer,
+      get rooms() {
+        return rooms;
+      },
+      set rooms(next) {
+        rooms = next;
+      },
+      get directory() {
+        return directory;
+      },
+      set directory(next) {
+        directory = next;
+      },
+      get users() {
+        return users;
+      },
+      set users(next) {
+        users = next;
+      },
+      get status() {
+        return status;
+      },
+      set status(next) {
         status = next;
-      }),
-      session.on('info', ({ message }) => flash(message, false)),
-      session.on('error', ({ message }) => flash(message, true)),
-      session.on('joined', ({ room }) => {
-        currentRoom = room;
-      }),
-    ];
+      },
+      get currentRoom() {
+        return currentRoom;
+      },
+      set currentRoom(next) {
+        currentRoom = next;
+      },
+      get username() {
+        return username;
+      },
+      get typingUsers() {
+        return typingUsers;
+      },
+      set typingUsers(next) {
+        typingUsers = next;
+      },
+      get callToast() {
+        return callToast;
+      },
+      set callToast(next) {
+        callToast = next;
+      },
+      get watch() {
+        return watch;
+      },
+      set watch(next) {
+        watch = next;
+      },
+      get watchIntent() {
+        return watchIntent;
+      },
+      set watchIntent(next) {
+        watchIntent = next;
+      },
+      syncMetaFromSession,
+      clearUnread,
+      shouldCountUnread,
+      bumpUnread,
+      isCaughtUp,
+      maybeNotify,
+      maybeReceiveCue,
+      loadRooms,
+      loadDirectory,
+      selectRoom,
+      closeRoomMenu,
+      applyWatchSnapshot,
+      flashWatchDenied,
+      flash,
+    });
 
     const onVisibility = () => {
       if (!document.hidden) {
@@ -1820,21 +1502,21 @@
     />
 
     <TranscriptView
-      bind:scroller
-      {displayMessages}
+      bind:scroller={pin.scroller}
+      displayMessages={buffer.displayMessages}
       {transcriptRows}
-      {transcriptPhase}
-      {pendingRoom}
+      transcriptPhase={buffer.transcriptPhase}
+      pendingRoom={buffer.pendingRoom}
       {banner}
       {bannerError}
-      {showJump}
+      showJump={pin.showJump}
       {directory}
       {username}
       {me}
-      {onTranscriptScroll}
-      onJumpToLatest={jumpToLatest}
+      onTranscriptScroll={pin.onTranscriptScroll}
+      onJumpToLatest={pin.jumpToLatest}
       {lookupUser}
-      {shouldAnimateEnter}
+      shouldAnimateEnter={buffer.shouldAnimateEnter}
       {onDownload}
       onUnsend={unsend}
       onResetPassword={resetPasswordFor}

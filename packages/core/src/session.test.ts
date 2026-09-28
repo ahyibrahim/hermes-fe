@@ -47,6 +47,42 @@ test('session de-duplicates the same message id from REST and the live broadcast
   }
 });
 
+test('the de-duplication window stays capped and still drops late echoes', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  const api = new HermesApi(backend.baseUrl, new MemoryFileIO());
+  const ws = new HermesWsClient(backend.baseUrl, new NodeTransport());
+  const session = new SessionController({
+    baseUrl: backend.baseUrl,
+    api,
+    ws,
+    tokens: new MemoryTokenStore(),
+    reconnectDelayMs: 40,
+    displayedIdLimit: 3,
+  });
+  const seen: MessageRecord[] = [];
+  session.on('message', (message) => seen.push(message));
+
+  try {
+    await session.login('alice', 'secret');
+    await session.enterRoom('general');
+    await waitFor(() => session.getConnectionStatus() === 'open');
+    for (let i = 1; i <= 6; i += 1) {
+      await session.sendMessage(`note ${i}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(seen.length, 6, 'each REST reply and its live echo count once');
+    assert.ok(session.displayedIdCount <= 3);
+
+    await session.enterRoom('general');
+    assert.equal(session.getState().messages.length, 6);
+    assert.ok(session.displayedIdCount <= 3, 'rebuilding from history respects the cap');
+  } finally {
+    session.shutdown();
+    await backend.close();
+  }
+});
+
 test('a message posted while room history is loading stays in the transcript', async () => {
   const backend = await startFakeBackend();
   backend.seedUser('alice', 'secret');

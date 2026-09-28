@@ -1778,6 +1778,19 @@ button {
   width: calc(min(18rem, 85vw) - 1px);
 }
 
+/* A collapsed phone rail holds only its toggle, so the toggle covers the
+   whole strip and keeps the chevron centered on it. */
+.shell.phone.rooms-collapsed .rooms-rail .rail-toggle,
+.shell.phone.people-collapsed .rail.people .rail-toggle {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+}
+
 .shell.phone .rail-drawer-backdrop {
   position: absolute;
   inset: 0;
@@ -2050,6 +2063,19 @@ button {
 
 .msg-body a {
   overflow-wrap: anywhere;
+}
+
+.msg-list {
+  margin: 0.15rem 0;
+  padding-left: 1.35rem;
+}
+
+.msg-list li + li {
+  margin-top: 0.1rem;
+}
+
+.msg-body s {
+  color: var(--text-muted);
 }
 
 .watch-link-block {

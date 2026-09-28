@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PublicUser } from '@hermes/core';
+  import type { InlinePart, PublicUser } from '@hermes/core';
   import { isYouTubeUrl, parseMessageBody } from '@hermes/core';
   import HoverCard from '$lib/components/HoverCard.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
@@ -45,8 +45,7 @@
   onDestroy(() => clearTimeout(copiedTimer));
 </script>
 
-<span class="msg-body">
-  {#each parts as part, index (index)}
+{#snippet inline(part: InlinePart)}
     {#if part.type === 'text'}
       {part.value}
     {:else if part.type === 'url'}
@@ -96,6 +95,19 @@
       <strong>{part.value}</strong>
     {:else if part.type === 'italic'}
       <em>{part.value}</em>
+    {:else if part.type === 'strike'}
+      <s>{part.value}</s>
+    {/if}
+{/snippet}
+
+<span class="msg-body">
+  {#each parts as part, index (index)}
+    {#if part.type === 'list'}
+      {#if part.ordered}
+        <ol class="msg-list" start={part.start}>{#each part.items as item, itemIndex (itemIndex)}<li>{#each item as child, childIndex (childIndex)}{@render inline(child)}{/each}</li>{/each}</ol>
+      {:else}
+        <ul class="msg-list">{#each part.items as item, itemIndex (itemIndex)}<li>{#each item as child, childIndex (childIndex)}{@render inline(child)}{/each}</li>{/each}</ul>
+      {/if}
     {:else if part.type === 'code'}
       <div class="fence-wrap">
         <div class="fence-header">
@@ -147,6 +159,8 @@
         </div>
         <pre class="fence"><code>{part.value}</code></pre>
       </div>
+    {:else}
+      {@render inline(part)}
     {/if}
   {/each}
 </span>
