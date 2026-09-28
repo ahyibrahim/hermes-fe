@@ -46,12 +46,12 @@ export async function loadMdPreview(
         bytes.byteLength > MAX_MD_PREVIEW_BYTES ? bytes.slice(0, MAX_MD_PREVIEW_BYTES) : bytes;
       const truncated = bytes.byteLength > MAX_MD_PREVIEW_BYTES;
       const text = new TextDecoder('utf-8', { fatal: false }).decode(slice);
-      const [{ marked }, DOMPurifyMod] = await Promise.all([import('marked'), import('dompurify')]);
-      const purify = DOMPurifyMod.default;
+      const [{ marked }, { sanitizeMarkdownHtml }] = await Promise.all([
+        import('marked'),
+        import('./markdown-sanitize'),
+      ]);
       const rendered = marked.parse(text, { async: false }) as string;
-      const html = purify.sanitize(rendered, {
-        USE_PROFILES: { html: true },
-      });
+      const html = sanitizeMarkdownHtml(rendered);
       const res: MdPreviewResult = { html, truncated };
       mdPreviewCache.set(id, res);
       return res;

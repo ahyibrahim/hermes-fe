@@ -2423,6 +2423,8 @@ a.yt-preview-author:hover {
   font-size: 0.95rem;
   line-height: 1.5;
   word-break: break-word;
+  /* Nothing rendered from an attachment may paint outside its box. */
+  contain: paint;
 }
 
 .md-preview-frame:hover .md-preview {
