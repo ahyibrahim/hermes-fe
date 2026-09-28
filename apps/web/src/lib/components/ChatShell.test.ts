@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, test } from 'vitest';
 import ChatShell from './ChatShell.svelte';
 import { bootWorld, type TestWorld } from '../../test/harness';
@@ -7,6 +7,8 @@ import { setPhoneViewport } from '../../test/viewport';
 let world: TestWorld | null = null;
 
 afterEach(async () => {
+  // Unmount before the session goes away; pending component effects still call getSession().
+  cleanup();
   await world?.close();
   world = null;
 });
