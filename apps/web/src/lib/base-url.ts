@@ -6,7 +6,7 @@
  * `ws(s)://` + `location.origin`.
  *
  * Dev: same-origin through the Vite proxy (see vite.config.ts), which targets
- * `http://ying-1:3000`. Set `VITE_HERMES_BASE_URL` to hit a backend directly
+ * `https://ying-1.tail18942a.ts.net`. Set `VITE_HERMES_BASE_URL` to hit a backend directly
  * (needs CORS) or to an empty string to keep using the proxy.
  */
 export function getApiBaseUrl(): string {

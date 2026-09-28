@@ -1,7 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
-const proxyTarget = process.env.VITE_HERMES_PROXY_TARGET || 'http://ying-1:3000';
+const proxyTarget = process.env.VITE_HERMES_PROXY_TARGET || 'https://ying-1.tail18942a.ts.net';
 
 export default defineConfig({
   plugins: [sveltekit()],

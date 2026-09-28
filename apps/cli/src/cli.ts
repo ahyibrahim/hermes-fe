@@ -11,8 +11,14 @@ import {
 } from '@hermes/core';
 import { NodeFileIO, NodeTokenStore, NodeTransport } from '@hermes/core/node';
 import { printAbovePrompt, questionPassword } from './terminal.js';
+import { isSafeBaseUrl } from './base-url.js';
 
-const baseUrl = process.env.HERMES_BASE_URL || 'http://ying-1:3000';
+const baseUrl = process.env.HERMES_BASE_URL || 'https://ying-1.tail18942a.ts.net';
+if (!isSafeBaseUrl(baseUrl)) {
+  process.stderr.write(
+    `warning: ${baseUrl} is plain HTTP; your password and token cross the network unencrypted. Use the https:// address.\n`
+  );
+}
 const api = new HermesApi(baseUrl, new NodeFileIO());
 const ws = new HermesWsClient(baseUrl, new NodeTransport());
 const session = new SessionController({
