@@ -1409,6 +1409,7 @@
               {showAddPicker}
               canLeave={canLeaveRoom(currentRoomRecord())}
               canKick={canModerateRoom(currentRoomRecord())}
+              actorIsAdmin={me?.role === 'admin'}
               canDelete={canModerateRoom(currentRoomRecord())}
               {leaving}
               deleting={deletingRoom}

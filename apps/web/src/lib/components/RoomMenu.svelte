@@ -16,6 +16,7 @@
     showAddPicker,
     canLeave,
     canKick = false,
+    actorIsAdmin = false,
     canDelete = false,
     leaving,
     deleting = false,
@@ -40,6 +41,7 @@
     showAddPicker: boolean;
     canLeave: boolean;
     canKick?: boolean;
+    actorIsAdmin?: boolean;
     canDelete?: boolean;
     leaving: boolean;
     deleting?: boolean;
@@ -77,7 +79,7 @@
           onSetRole={person.username === selfUsername ? undefined : onSetRole}
         />
         <span class="role-label">{person.role ?? 'member'}</span>
-        {#if canKick && onKick && person.username !== selfUsername && !person.system}
+        {#if canKick && onKick && person.username !== selfUsername && !person.system && (actorIsAdmin || person.role !== 'admin')}
           {#if confirmKickId === person.id}
             <div class="menu-confirm-row member-kick">
               <button type="button" class="menu-item" disabled={kickingId != null} onclick={() => (confirmKickId = null)}>
