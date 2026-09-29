@@ -29,6 +29,15 @@
     }
   }
 
+  function onImageError(): void {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    previewUrl = null;
+    expanded = false;
+    failed = true;
+  }
+
   function imageMime(mime: string, filename: string): string | null {
     const type = mime.toLowerCase().split(';')[0].trim();
     if (type.startsWith('image/') && type !== 'image/svg+xml') {
@@ -135,6 +144,7 @@
         alt={name}
         use:checkImgReady
         onload={() => (imageReady = true)}
+        onerror={onImageError}
       />
     </span>
     <span class="visually-hidden">Expand image</span>
