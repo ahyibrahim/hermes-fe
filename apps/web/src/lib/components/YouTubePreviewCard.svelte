@@ -3,7 +3,7 @@
   import { parseYouTubeVideoId } from '@hermes/core';
   import { getSession } from '$lib/client';
   import { soft } from '$lib/motion';
-  import { getCachedLinkPreview, loadLinkPreview } from '$lib/ui';
+  import { getCachedLinkPreview, loadLinkPreview, loadPreviewImageUrl } from '$lib/ui';
   import { untrack } from 'svelte';
 
   let {
@@ -25,6 +25,29 @@
   let thumbFailed = $state(false);
   let thumbReady = $state(false);
   let currentLoadedUrl = $state<string | null>(initialCached !== undefined ? url : null);
+  let thumbSrc = $state<string | null>(null);
+
+  $effect(() => {
+    const target = thumbUrl;
+    untrack(() => (thumbSrc = null));
+    if (!target) {
+      return;
+    }
+    let cancelled = false;
+    void loadPreviewImageUrl(getSession(), target).then((src) => {
+      if (cancelled) {
+        return;
+      }
+      if (src) {
+        thumbSrc = src;
+      } else {
+        thumbFailed = true;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   function checkImgReady(node: HTMLImageElement) {
     if (node.complete && node.naturalWidth > 0) {
@@ -108,16 +131,17 @@
         onclick={startWatch}
       >
         <span class="yt-preview-skel settle-shimmer" class:hidden={thumbReady}></span>
-        <img
-          class="yt-preview-thumb"
-          class:settled={thumbReady}
-          src={thumbUrl}
-          alt=""
-          loading="lazy"
-          use:checkImgReady
-          onload={() => (thumbReady = true)}
-          onerror={() => (thumbFailed = true)}
-        />
+        {#if thumbSrc}
+          <img
+            class="yt-preview-thumb"
+            class:settled={thumbReady}
+            src={thumbSrc}
+            alt=""
+            use:checkImgReady
+            onload={() => (thumbReady = true)}
+            onerror={() => (thumbFailed = true)}
+          />
+        {/if}
         {#if durationLabel}
           <span class="yt-preview-duration" transition:soft>{durationLabel}</span>
         {/if}
@@ -125,16 +149,17 @@
     {:else}
       <a class="yt-preview-thumb-wrap" href={url} target="_blank" rel="noreferrer noopener">
         <span class="yt-preview-skel settle-shimmer" class:hidden={thumbReady}></span>
-        <img
-          class="yt-preview-thumb"
-          class:settled={thumbReady}
-          src={thumbUrl}
-          alt=""
-          loading="lazy"
-          use:checkImgReady
-          onload={() => (thumbReady = true)}
-          onerror={() => (thumbFailed = true)}
-        />
+        {#if thumbSrc}
+          <img
+            class="yt-preview-thumb"
+            class:settled={thumbReady}
+            src={thumbSrc}
+            alt=""
+            use:checkImgReady
+            onload={() => (thumbReady = true)}
+            onerror={() => (thumbFailed = true)}
+          />
+        {/if}
         {#if durationLabel}
           <span class="yt-preview-duration" transition:soft>{durationLabel}</span>
         {/if}
