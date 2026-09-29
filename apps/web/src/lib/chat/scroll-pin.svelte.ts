@@ -111,49 +111,13 @@ export class ScrollPin {
         return;
       }
       const ro = new ResizeObserver(() => {
-        if (!this.stickToBottom || !this.scroller) {
-          return;
+        if (this.stickToBottom) {
+          this.pinToLatest('auto');
         }
-        // A smooth pin is already moving. Keep it smooth so a resize does not snap over it.
-        if (this.pinScrollTimer) {
-          this.scroller.scrollTo({ top: this.scroller.scrollHeight, behavior: 'smooth' });
-          return;
-        }
-        this.pinToLatest('auto');
       });
       ro.observe(inner);
       ro.observe(root);
       return () => ro.disconnect();
-    });
-
-    $effect(() => {
-      const viewport = window.visualViewport;
-      if (!viewport) {
-        return;
-      }
-      let lastHeight = viewport.height;
-      const apply = (): void => {
-        const height = `${viewport.height}px`;
-        document.documentElement.style.height = height;
-        document.body.style.height = height;
-        document.body.style.transform = viewport.offsetTop ? `translateY(${viewport.offsetTop}px)` : '';
-        if (viewport.height !== lastHeight && this.stickToBottom) {
-          lastHeight = viewport.height;
-          this.pinToLatest('auto');
-        } else {
-          lastHeight = viewport.height;
-        }
-      };
-      apply();
-      viewport.addEventListener('resize', apply);
-      viewport.addEventListener('scroll', apply);
-      return () => {
-        viewport.removeEventListener('resize', apply);
-        viewport.removeEventListener('scroll', apply);
-        document.documentElement.style.height = '';
-        document.body.style.height = '';
-        document.body.style.transform = '';
-      };
     });
   }
 }
