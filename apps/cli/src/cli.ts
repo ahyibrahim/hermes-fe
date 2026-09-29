@@ -10,7 +10,7 @@ import {
   SessionController,
 } from '@hermes/core';
 import { NodeFileIO, NodeTokenStore, NodeTransport } from '@hermes/core/node';
-import { printAbovePrompt, questionPassword } from './terminal.js';
+import { printAbovePrompt, questionPassword, sanitizeForTerminal } from './terminal.js';
 import { isSafeBaseUrl } from './base-url.js';
 
 const baseUrl = process.env.HERMES_BASE_URL || 'https://ying-1.tail18942a.ts.net';
@@ -33,12 +33,13 @@ let inChat = false;
 let authLost = false;
 
 function say(line: string): void {
+  const safe = sanitizeForTerminal(line);
   if (inChat) {
-    printAbovePrompt(rl, line);
+    printAbovePrompt(rl, safe);
     return;
   }
 
-  console.log(line);
+  console.log(safe);
 }
 
 function chatPrompt(): string {
@@ -178,13 +179,13 @@ async function loginLoop(): Promise<void> {
     try {
       if (choice === 'r' || choice === 'register') {
         const response = await session.register(username, password);
-        console.log(`Registered ${response.user.username}`);
+        console.log(sanitizeForTerminal(`Registered ${response.user.username}`));
       }
 
       await session.login(username, password);
-      console.log(`Logged in as ${session.getState().username}`);
+      console.log(sanitizeForTerminal(`Logged in as ${session.getState().username}`));
     } catch (error) {
-      console.log(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      console.log(sanitizeForTerminal(`Error: ${error instanceof Error ? error.message : String(error)}`));
     }
   }
 }
@@ -194,7 +195,7 @@ async function ensureAuthenticated(): Promise<void> {
   console.log(`Backend: ${baseUrl}`);
 
   if (await session.resume()) {
-    console.log(`Logged in as ${session.getState().username}`);
+    console.log(sanitizeForTerminal(`Logged in as ${session.getState().username}`));
     printConnectionStatus();
     return;
   }
@@ -205,7 +206,11 @@ async function ensureAuthenticated(): Promise<void> {
     await session.connect();
     printConnectionStatus();
   } catch (error) {
-    console.log(`WebSocket connection unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(
+      sanitizeForTerminal(
+        `WebSocket connection unavailable: ${error instanceof Error ? error.message : String(error)}`
+      )
+    );
     console.log('You can still send and load history over REST.');
   }
 }

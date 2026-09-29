@@ -24,10 +24,9 @@ const config = {
         // Svelte transitions insert <style> at runtime, and components use
         // style= attributes.
         'style-src': ['self', 'unsafe-inline'],
-        // Link-preview og:image and favicons can be on any https host until
-        // they are proxied through hermes-be; blob: for image and avatar
-        // previews, data: for inline markdown images.
-        'img-src': ['self', 'blob:', 'data:', 'https:'],
+        // Link-preview images come through hermes-be as blob: URLs, like
+        // image and avatar previews; data: for inline markdown images.
+        'img-src': ['self', 'blob:', 'data:'],
         'media-src': ['self', 'blob:'],
         'font-src': ['self', 'data:'],
         // wss: covers browsers that do not match ws(s) against 'self'.

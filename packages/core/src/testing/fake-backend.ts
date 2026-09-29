@@ -846,8 +846,15 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 400, { error: 'cannot DM a system user' });
           return;
         }
+        const me = users.get(username);
+        const otherUser = users.get(other);
+        if (!me || !otherUser) {
+          sendJson(res, 400, { error: 'both users must exist' });
+          return;
+        }
+        const ids = [me.id, otherUser.id].sort((a, b) => a - b);
+        const slug = `dm:${ids[0]}:${ids[1]}`;
         const pair = [username, other].sort((a, b) => a.localeCompare(b));
-        const slug = `dm:${pair[0]}:${pair[1]}`;
         const existing = rooms.get(slug);
         if (existing) {
           if (!existing.members.includes(username)) {
@@ -975,6 +982,17 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         room.members = room.members.filter((member) => member !== username);
+        const leaver = users.get(username);
+        if (leaver && room.creator_id === leaver.id) {
+          room.creator_id = null;
+        }
+        broadcastToMembers(slug, {
+          type: 'member_removed',
+          room: slug,
+          removed_by: username,
+          users: [username],
+          members: [...room.members],
+        });
         sendJson(res, 200, { ok: true });
         return;
       }
@@ -1008,11 +1026,6 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 403, { error: 'forbidden' });
           return;
         }
-        const mayKick = actor.role === 'admin' || room.creator_id === actor.id;
-        if (!mayKick) {
-          sendJson(res, 403, { error: 'forbidden' });
-          return;
-        }
         if (body.userId === actor.id) {
           sendJson(res, 400, { error: 'cannot kick yourself' });
           return;
@@ -1021,6 +1034,15 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         const target = targetName ? users.get(targetName) : undefined;
         if (!targetName || !target) {
           sendJson(res, 404, { error: 'user not found' });
+          return;
+        }
+        const mayKick =
+          actor.role === 'admin' ||
+          (room.creator_id === actor.id &&
+            room.members.includes(actorName) &&
+            target.role !== 'admin');
+        if (!mayKick) {
+          sendJson(res, 403, { error: 'forbidden' });
           return;
         }
         if (target.system) {
@@ -1032,6 +1054,9 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         room.members = room.members.filter((member) => member !== targetName);
+        if (room.creator_id === target.id) {
+          room.creator_id = null;
+        }
         const payload = {
           type: 'member_removed',
           room: slug,
@@ -1073,7 +1098,9 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 403, { error: 'forbidden' });
           return;
         }
-        const mayDelete = actor.role === 'admin' || room.creator_id === actor.id;
+        const mayDelete =
+          actor.role === 'admin' ||
+          (room.creator_id === actor.id && room.members.includes(actorName));
         if (!mayDelete) {
           sendJson(res, 403, { error: 'forbidden' });
           return;

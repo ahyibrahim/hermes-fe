@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as readline from 'node:readline/promises';
 import { PassThrough } from 'node:stream';
-import { questionPassword, PasswordCancelReason, PasswordInputStream } from './terminal.js';
+import { questionPassword, PasswordCancelReason, PasswordInputStream, sanitizeForTerminal } from './terminal.js';
+
+test('sanitizeForTerminal drops escape and control characters', () => {
+  assert.equal(sanitizeForTerminal('hello'), 'hello');
+  assert.equal(sanitizeForTerminal('a\nb\tc'), 'a\nb\tc');
+  assert.equal(sanitizeForTerminal('hi\u001b]52;c;eA==\u0007there'), 'hithere');
+  assert.equal(sanitizeForTerminal('x\u001b[2Jx'), 'xx');
+  assert.equal(sanitizeForTerminal('ok\u009b31m'), 'ok');
+});
 
 type FakeInput = PassThrough & {
   isTTY?: boolean;

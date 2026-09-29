@@ -95,6 +95,31 @@ export async function loadLinkPreview(
   return promise;
 }
 
+const PREVIEW_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/x-icon']);
+const previewImageCache = new Map<string, CacheEntry>();
+
+/**
+ * Preview images and favicons come through hermes-be, never straight from
+ * the page's host, so viewing a preview does not reach third-party or LAN
+ * addresses from the browser.
+ */
+export async function loadPreviewImageUrl(session: SessionController, url: string): Promise<string | null> {
+  const hit = previewImageCache.get(url);
+  if (hit) {
+    return hit.inflight ?? hit.url;
+  }
+  const inflight = (async () => {
+    const res = await session.fetchPreviewImage(url).catch(() => null);
+    const type = res?.mime.toLowerCase().split(';')[0].trim() ?? '';
+    const objectUrl =
+      res && PREVIEW_IMAGE_TYPES.has(type) ? URL.createObjectURL(new Blob([res.bytes.slice()], { type })) : null;
+    previewImageCache.set(url, { url: objectUrl });
+    return objectUrl;
+  })();
+  previewImageCache.set(url, { url: null, inflight });
+  return inflight;
+}
+
 export function portal(node: HTMLElement, target: HTMLElement = document.body) {
   target.appendChild(node);
   return {
@@ -212,6 +237,40 @@ export function saveDraft(slug: string, text: string): void {
 export function clearDraft(slug: string): void {
   try {
     localStorage.removeItem(draftKey(slug));
+  } catch {
+    // ignore
+  }
+}
+
+function revokeBlobCache(entries: Iterable<CacheEntry>): void {
+  for (const entry of entries) {
+    if (entry.url) {
+      URL.revokeObjectURL(entry.url);
+    }
+  }
+}
+
+/** Drops drafts and in-memory previews when the session ends. */
+export function clearSessionCaches(): void {
+  revokeBlobCache(cache.values());
+  cache.clear();
+  revokeBlobCache(previewImageCache.values());
+  previewImageCache.clear();
+  linkPreviewCache.clear();
+  linkPreviewInflight.clear();
+  mdPreviewCache.clear();
+  mdPreviewInflight.clear();
+  try {
+    const draftKeys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith('hermes.draft.')) {
+        draftKeys.push(key);
+      }
+    }
+    for (const key of draftKeys) {
+      localStorage.removeItem(key);
+    }
   } catch {
     // ignore
   }

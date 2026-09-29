@@ -155,9 +155,17 @@ export function bindSessionListeners(
       }
     }),
     session.on('userUpdated', (user) => {
+      const meName = session.getState().username;
+      const previous = shell.directory.find(
+        (entry) => entry.id === user.id || entry.username === user.username
+      );
       shell.directory = shell.directory.map((entry) =>
         entry.id === user.id || entry.username === user.username ? { ...entry, ...user } : entry
       );
+      if (meName && user.username === meName && user.role && previous?.role && previous.role !== user.role) {
+        shell.closeRoomMenu();
+        shell.flash(`You are now ${user.role}.`);
+      }
     }),
     session.on('memberAdded', () => {
       void shell.loadRooms();

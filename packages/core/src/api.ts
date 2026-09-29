@@ -351,4 +351,24 @@ export class HermesApi {
     const body = (await response.json()) as { preview?: LinkPreview | null };
     return body.preview ?? null;
   }
+
+  /** A preview's image or favicon, fetched by hermes-be. Null when it has none to give. */
+  async fetchPreviewImage(url: string, token: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+    const response = await fetch(
+      `${this.baseUrl}/link-preview/image?url=${encodeURIComponent(url)}`,
+      { headers: this.authHeaders(token) }
+    );
+
+    if (response.status === 401) {
+      const text = await response.text();
+      throw new AuthError(`Preview image failed: 401 ${text}`.trim());
+    }
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const mime = response.headers.get('content-type') || 'application/octet-stream';
+    return { bytes: new Uint8Array(await response.arrayBuffer()), mime };
+  }
 }

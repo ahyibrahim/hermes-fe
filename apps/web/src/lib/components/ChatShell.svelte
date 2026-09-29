@@ -899,6 +899,7 @@
       flash(`${updated.username} is now ${updated.role}.`);
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
+      await loadDirectory();
     }
   }
 
@@ -1409,6 +1410,7 @@
               {showAddPicker}
               canLeave={canLeaveRoom(currentRoomRecord())}
               canKick={canModerateRoom(currentRoomRecord())}
+              actorIsAdmin={me?.role === 'admin'}
               canDelete={canModerateRoom(currentRoomRecord())}
               {leaving}
               deleting={deletingRoom}

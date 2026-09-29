@@ -3,6 +3,59 @@ import * as readline from 'node:readline';
 import { stdin as processStdin, stdout as processStdout } from 'node:process';
 import { StringDecoder } from 'node:string_decoder';
 
+/** Drops terminal controls and the escape sequences they introduce. */
+export function sanitizeForTerminal(value: string): string {
+  let out = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0x1b) {
+      const next = value.charCodeAt(index + 1);
+      if (next === 0x5d) {
+        index += 2;
+        while (index < value.length) {
+          const current = value.charCodeAt(index);
+          if (current === 0x07) {
+            break;
+          }
+          if (current === 0x1b && value.charCodeAt(index + 1) === 0x5c) {
+            index += 1;
+            break;
+          }
+          index += 1;
+        }
+        continue;
+      }
+      if (next === 0x5b) {
+        index += 2;
+        while (index < value.length && value.charCodeAt(index) < 0x40) {
+          index += 1;
+        }
+        continue;
+      }
+      if (index + 1 < value.length) {
+        index += 1;
+      }
+      continue;
+    }
+    if (code === 0x9b) {
+      index += 1;
+      while (index < value.length && value.charCodeAt(index) < 0x40) {
+        index += 1;
+      }
+      continue;
+    }
+    if (code === 0x09 || code === 0x0a) {
+      out += value[index];
+      continue;
+    }
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      continue;
+    }
+    out += value[index];
+  }
+  return out;
+}
+
 export function printAbovePrompt(rl: Interface, line: string): void {
   readline.clearLine(processStdout, 0);
   readline.cursorTo(processStdout, 0);

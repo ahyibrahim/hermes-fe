@@ -560,6 +560,17 @@ export class SessionController {
     }
   }
 
+  async fetchPreviewImage(url: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+    if (!this.state.token) {
+      throw new Error('Please login first.');
+    }
+    try {
+      return await this.withAuth('rest', () => this.api.fetchPreviewImage(url, this.state.token as string));
+    } catch {
+      return null;
+    }
+  }
+
   async getIce(): Promise<IceConfig> {
     if (!this.state.token) {
       throw new Error('Please login first.');

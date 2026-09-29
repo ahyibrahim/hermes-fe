@@ -2,7 +2,7 @@
   import type { LinkPreview } from '@hermes/core';
   import { getSession } from '$lib/client';
   import { soft } from '$lib/motion';
-  import { getCachedLinkPreview, loadLinkPreview } from '$lib/ui';
+  import { getCachedLinkPreview, loadLinkPreview, loadPreviewImageUrl } from '$lib/ui';
   import { untrack } from 'svelte';
 
   let { url }: { url: string } = $props();
@@ -19,11 +19,51 @@
     Boolean(preview && (preview.title || preview.description || preview.image))
   );
 
+  let imageSrc = $state<string | null>(null);
+  let faviconSrc = $state<string | null>(null);
+
   function checkImgReady(node: HTMLImageElement) {
     if (node.complete && node.naturalWidth > 0) {
       imageReady = true;
     }
   }
+
+  function proxied(target: string | null | undefined, set: (src: string | null) => void, fail: () => void) {
+    untrack(() => set(null));
+    if (!target) {
+      return;
+    }
+    let cancelled = false;
+    void loadPreviewImageUrl(getSession(), target).then((src) => {
+      if (cancelled) {
+        return;
+      }
+      if (src) {
+        set(src);
+      } else {
+        fail();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }
+
+  $effect(() =>
+    proxied(
+      preview?.image,
+      (src) => (imageSrc = src),
+      () => (imageFailed = true)
+    )
+  );
+
+  $effect(() =>
+    proxied(
+      preview?.favicon,
+      (src) => (faviconSrc = src),
+      () => (faviconFailed = true)
+    )
+  );
 
   $effect(() => {
     const target = url;
@@ -88,25 +128,26 @@
     {#if preview.image && !imageFailed}
       <span class="link-preview-image-slot">
         <span class="link-preview-skel-image settle-shimmer" class:hidden={imageReady}></span>
-        <img
-          class="link-preview-image"
-          class:settled={imageReady}
-          src={preview.image}
-          alt=""
-          loading="lazy"
-          use:checkImgReady
-          onload={() => (imageReady = true)}
-          onerror={() => (imageFailed = true)}
-        />
+        {#if imageSrc}
+          <img
+            class="link-preview-image"
+            class:settled={imageReady}
+            src={imageSrc}
+            alt=""
+            use:checkImgReady
+            onload={() => (imageReady = true)}
+            onerror={() => (imageFailed = true)}
+          />
+        {/if}
       </span>
     {/if}
     <span class="link-preview-meta">
       {#if preview.site || preview.favicon}
         <span class="link-preview-site-row">
-          {#if preview.favicon && !faviconFailed}
+          {#if faviconSrc && !faviconFailed}
             <img
               class="link-preview-favicon"
-              src={preview.favicon}
+              src={faviconSrc}
               alt=""
               width="14"
               height="14"
