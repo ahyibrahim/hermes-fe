@@ -38,7 +38,7 @@ Start hermes-be first (see that repo's README). Then:
 npm run dev:web
 ```
 
-That is `vite dev --host` in `apps/web`. The API base URL is empty (same origin as the Vite dev server). Vite proxies `/health`, `/auth`, `/rooms`, `/messages`, `/files`, `/users`, `/ice`, and `/ws` to `http://ying-1:3000` by default — that is **production** on this host. For a local backend:
+That is `vite dev --host` in `apps/web`. The API base URL is empty (same origin as the Vite dev server). Vite proxies `/health`, `/auth`, `/rooms`, `/messages`, `/files`, `/users`, `/ice`, and `/ws` to `https://ying-1.tail18942a.ts.net` by default — that is **production**. From hermes-be v0.27.0 the backend listens on loopback only, so `http://ying-1:3000` no longer answers. `/ws` accepts the dev server's `localhost` origin; opening the dev server from another device needs that origin in the backend's `HERMES_ALLOWED_ORIGINS`. For a local backend:
 
 ```sh
 VITE_HERMES_PROXY_TARGET=http://127.0.0.1:3000 npm run dev:web
@@ -47,7 +47,7 @@ VITE_HERMES_PROXY_TARGET=http://127.0.0.1:3000 npm run dev:web
 To talk to a backend directly instead of through the proxy (needs CORS, which hermes-be does not send):
 
 ```sh
-VITE_HERMES_BASE_URL=http://ying-1:3000 npm run dev:web
+VITE_HERMES_BASE_URL=http://127.0.0.1:3000 npm run dev:web
 ```
 
 hermes-be does not send CORS headers, so the proxy is the path that works from `localhost`.
@@ -58,7 +58,7 @@ hermes-be does not send CORS headers, so the proxy is the path that works from `
 npm run build
 ```
 
-The artifact is `apps/web/build/` (`index.html` plus hashed `_app/` assets). hermes-be serves that directory from `HERMES_WEB_DIR`. On the tailnet that is `http://ying-1:3000` — the same origin as the API, so the bundle uses relative URLs and does not bake in a hostname.
+The artifact is `apps/web/build/` (`index.html` plus hashed `_app/` assets). hermes-be serves that directory from `HERMES_WEB_DIR`. On the tailnet that is `https://ying-1.tail18942a.ts.net` — the same origin as the API, so the bundle uses relative URLs and does not bake in a hostname.
 
 To try that path **before** tagging or running `deploy.sh` (throwaway DB, not `/var/lib/hermes`):
 
@@ -113,7 +113,7 @@ npm start
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `HERMES_BASE_URL` | `http://ying-1:3000` | Base URL of the backend. The WebSocket URL is derived from it, so `http://` becomes `ws://` and `https://` becomes `wss://`. |
+| `HERMES_BASE_URL` | `https://ying-1.tail18942a.ts.net` | Base URL of the backend. The WebSocket URL is derived from it, so `http://` becomes `ws://` and `https://` becomes `wss://`. The CLI warns on plain HTTP to anything but loopback. |
 | `XDG_CONFIG_HOME` | `~/.config` | Directory used for the persistent login file `hermes/config.json`. |
 
 ```sh
