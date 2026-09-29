@@ -846,8 +846,15 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 400, { error: 'cannot DM a system user' });
           return;
         }
+        const me = users.get(username);
+        const otherUser = users.get(other);
+        if (!me || !otherUser) {
+          sendJson(res, 400, { error: 'both users must exist' });
+          return;
+        }
+        const ids = [me.id, otherUser.id].sort((a, b) => a - b);
+        const slug = `dm:${ids[0]}:${ids[1]}`;
         const pair = [username, other].sort((a, b) => a.localeCompare(b));
-        const slug = `dm:${pair[0]}:${pair[1]}`;
         const existing = rooms.get(slug);
         if (existing) {
           if (!existing.members.includes(username)) {

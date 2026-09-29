@@ -236,7 +236,10 @@ test('rooms, users, DMs and logout match the v0.6.0 REST surface', async () => {
 
     const dm = await session.createDm(bob.id);
     assert.equal(dm.type, 'dm');
-    assert.equal(dm.slug, 'dm:alice:bob');
+    const aliceUser = directory.find((user) => user.username === 'alice');
+    assert.ok(aliceUser);
+    const dmIds = [aliceUser.id, bob.id].sort((a, b) => a - b);
+    assert.equal(dm.slug, `dm:${dmIds[0]}:${dmIds[1]}`);
 
     const again = await session.createDm(bob.id);
     assert.equal(again.slug, dm.slug);
