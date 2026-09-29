@@ -899,6 +899,7 @@
       flash(`${updated.username} is now ${updated.role}.`);
     } catch (error) {
       flash(error instanceof Error ? error.message : String(error), true);
+      await loadDirectory();
     }
   }
 

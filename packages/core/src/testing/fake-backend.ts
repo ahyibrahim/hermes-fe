@@ -986,6 +986,13 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         if (leaver && room.creator_id === leaver.id) {
           room.creator_id = null;
         }
+        broadcastToMembers(slug, {
+          type: 'member_removed',
+          room: slug,
+          removed_by: username,
+          users: [username],
+          members: [...room.members],
+        });
         sendJson(res, 200, { ok: true });
         return;
       }
