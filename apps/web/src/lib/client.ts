@@ -7,6 +7,7 @@ import {
   SessionController,
 } from '@hermes/core';
 import { getApiBaseUrl } from './base-url';
+import { clearSessionCaches } from './ui';
 
 let session: SessionController | undefined;
 let files: BrowserFileIO | undefined;
@@ -51,6 +52,7 @@ export async function signOut(): Promise<void> {
     // Local sign-out still proceeds if the token is already gone.
   }
   session?.shutdown();
+  clearSessionCaches();
   await getTokens().clear();
   resetClient();
 }
@@ -68,8 +70,10 @@ export async function downloadAttachment(fileId: string, filename?: string): Pro
   const link = document.createElement('a');
   link.href = url;
   link.download = fileIO.basename(path);
+  link.rel = 'noopener';
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Revoke after the download starts. The URL is not left as a page.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

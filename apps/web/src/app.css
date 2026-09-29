@@ -1269,6 +1269,7 @@ button {
 .messages {
   overflow-y: auto;
   overflow-anchor: none;
+  overscroll-behavior: none;
   min-height: 0;
   flex: 1;
 }

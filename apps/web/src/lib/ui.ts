@@ -242,6 +242,40 @@ export function clearDraft(slug: string): void {
   }
 }
 
+function revokeBlobCache(entries: Iterable<CacheEntry>): void {
+  for (const entry of entries) {
+    if (entry.url) {
+      URL.revokeObjectURL(entry.url);
+    }
+  }
+}
+
+/** Drops drafts and in-memory previews when the session ends. */
+export function clearSessionCaches(): void {
+  revokeBlobCache(cache.values());
+  cache.clear();
+  revokeBlobCache(previewImageCache.values());
+  previewImageCache.clear();
+  linkPreviewCache.clear();
+  linkPreviewInflight.clear();
+  mdPreviewCache.clear();
+  mdPreviewInflight.clear();
+  try {
+    const draftKeys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith('hermes.draft.')) {
+        draftKeys.push(key);
+      }
+    }
+    for (const key of draftKeys) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function readCollapsed(key: string): boolean {
   try {
     return localStorage.getItem(key) === '1';
