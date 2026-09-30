@@ -50,6 +50,7 @@ export interface ShellBindings {
   applyWatchSnapshot(payload: Omit<WatchView, 'open'>, open?: boolean): void;
   flashWatchDenied(message: string): void;
   flash(message: string, isError?: boolean): void;
+  onHistorySettled(): void;
 }
 
 /** Subscribes ChatShell to session events; returns the unsubscribe functions. */
@@ -69,6 +70,12 @@ export function bindSessionListeners(
       }
       if (shell.currentRoom) {
         shell.clearUnread(shell.currentRoom);
+      }
+      shell.onHistorySettled();
+    }),
+    session.on('older', () => {
+      if (!shell.buffer.pendingRoom) {
+        shell.buffer.displayMessages = [...session.getState().messages];
       }
     }),
     session.on('message', (message) => {

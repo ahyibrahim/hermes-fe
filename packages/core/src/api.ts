@@ -5,6 +5,7 @@ import {
   FileUploadResponse,
   HealthResponse,
   IceConfig,
+  MessagePage,
   MessageRecord,
   PasswordResetIssue,
   PublicUser,
@@ -225,11 +226,22 @@ export class HermesApi {
     return this.readJson<IceConfig>(response, 'Get ICE servers', true);
   }
 
-  async listMessages(room: string, token: string): Promise<MessageRecord[]> {
-    const response = await fetch(`${this.baseUrl}/messages?room=${encodeURIComponent(room)}`, {
+  async listMessages(
+    room: string,
+    token: string,
+    options?: { before?: number; limit?: number }
+  ): Promise<MessagePage> {
+    const params = new URLSearchParams({ room });
+    if (options?.before != null) {
+      params.set('before', String(options.before));
+    }
+    if (options?.limit != null) {
+      params.set('limit', String(options.limit));
+    }
+    const response = await fetch(`${this.baseUrl}/messages?${params.toString()}`, {
       headers: this.authHeaders(token),
     });
-    return this.readJson<MessageRecord[]>(response, 'List messages', true);
+    return this.readJson<MessagePage>(response, 'List messages', true);
   }
 
   async deleteMessage(id: number, token: string): Promise<MessageRecord> {

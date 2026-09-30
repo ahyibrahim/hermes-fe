@@ -33,7 +33,7 @@
   import { bindSessionListeners, type WatchView } from '$lib/chat/session-listeners';
   import { TranscriptBuffer } from '$lib/chat/transcript-buffer.svelte';
   import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   let rooms = $state<RoomRecord[]>([]);
   let directory = $state<PublicUser[]>([]);
@@ -99,6 +99,50 @@
 
   const session = getSession();
   const pin = new ScrollPin(() => void markFocusedRead());
+  let loadingOlder = false;
+
+  async function loadOlderPage(fill: boolean): Promise<void> {
+    const scroller = pin.scroller;
+    if (loadingOlder || !session.getState().hasMore) {
+      return;
+    }
+    if (!fill && (pin.stickToBottom || !scroller || scroller.scrollTop > 48)) {
+      return;
+    }
+    loadingOlder = true;
+    const prevHeight = scroller?.scrollHeight ?? 0;
+    const prevTop = scroller?.scrollTop ?? 0;
+    try {
+      const loaded = await session.loadOlderMessages();
+      if (!loaded || !scroller) {
+        return;
+      }
+      await tick();
+      if (!pin.stickToBottom) {
+        scroller.scrollTop = scroller.scrollHeight - prevHeight + prevTop;
+      }
+    } finally {
+      loadingOlder = false;
+    }
+  }
+
+  function onHistorySettled(): void {
+    void (async () => {
+      for (let pass = 0; pass < 3; pass += 1) {
+        await tick();
+        const scroller = pin.scroller;
+        if (!scroller || !session.getState().hasMore || scroller.scrollHeight > scroller.clientHeight + 8) {
+          return;
+        }
+        await loadOlderPage(true);
+      }
+    })();
+  }
+
+  function onTranscriptScroll(): void {
+    pin.onTranscriptScroll();
+    void loadOlderPage(false);
+  }
   const buffer = new TranscriptBuffer(pin);
   const unreadTotal = $derived(rooms.reduce((sum, room) => sum + (room.unread_count ?? 0), 0));
   const tabTitle = $derived(unreadTotal > 0 ? `(${unreadTotal}) Hermes` : 'Hermes');
@@ -1265,6 +1309,7 @@
       applyWatchSnapshot,
       flashWatchDenied,
       flash,
+      onHistorySettled,
     });
 
     const onVisibility = () => {
@@ -1515,7 +1560,7 @@
       {directory}
       {username}
       {me}
-      onTranscriptScroll={pin.onTranscriptScroll}
+      onTranscriptScroll={onTranscriptScroll}
       onJumpToLatest={pin.jumpToLatest}
       {lookupUser}
       shouldAnimateEnter={buffer.shouldAnimateEnter}

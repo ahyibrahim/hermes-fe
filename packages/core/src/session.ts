@@ -19,6 +19,7 @@ import { ConnectionStatus, HermesWsClient, WsIncomingMessage } from './ws.js';
 export type SessionEventMap = {
   message: MessageRecord;
   history: { messages: MessageRecord[] };
+  older: { messages: MessageRecord[] };
   presence: { users: string[] };
   connected: { user: string };
   joined: { room: string };
@@ -102,6 +103,7 @@ export class SessionController {
   private shuttingDown = false;
   /** Non-null while enterRoom is loading history; keeps prior messages until apply. */
   private enteringRoom: string | null = null;
+  private loadingOlder = false;
   private enterGeneration = 0;
   /** Live frames that arrived while history for enteringRoom was in flight. */
   private enterQueue: Array<{ kind: 'message' | 'delete'; message: MessageRecord }> = [];
@@ -113,6 +115,7 @@ export class SessionController {
       room: null,
       roomUsers: [],
       messages: [],
+      hasMore: false,
       baseUrl: options.baseUrl,
     };
     this.api = options.api;
@@ -484,10 +487,10 @@ export class SessionController {
     try {
       if (!this.state.token) {
         this.emit('error', { message: 'Could not load history: missing auth token. Please login again.' });
-        this.applyRoomHistory([], generation);
+        this.applyRoomHistory([], false, generation);
       } else {
-        const messages = await this.withAuth('rest', () => this.api.listMessages(room, this.state.token as string));
-        this.applyRoomHistory(messages, generation);
+        const page = await this.withAuth('rest', () => this.api.listMessages(room, this.state.token as string));
+        this.applyRoomHistory(page.messages, page.has_more, generation);
       }
     } catch (error) {
       if (error instanceof AuthError) {
@@ -496,7 +499,7 @@ export class SessionController {
         }
         throw error;
       }
-      this.applyRoomHistory([], generation);
+      this.applyRoomHistory([], false, generation);
       this.emit('error', {
         message: `Could not load history: ${error instanceof Error ? error.message : String(error)}`,
       });
@@ -1010,10 +1013,52 @@ export class SessionController {
     }
   }
 
-  private applyRoomHistory(messages: MessageRecord[], generation: number): void {
+  /**
+   * Prepend the next older page. Returns false when this room has no older
+   * page or a fetch is already in flight.
+   */
+  async loadOlderMessages(): Promise<boolean> {
+    if (this.loadingOlder || !this.state.hasMore || !this.state.room || !this.state.token) {
+      return false;
+    }
+    const oldest = this.state.messages.find((message) => message.id != null)?.id;
+    if (oldest == null) {
+      return false;
+    }
+    const room = this.state.room;
+    const generation = this.enterGeneration;
+    this.loadingOlder = true;
+    try {
+      const page = await this.withAuth('rest', () =>
+        this.api.listMessages(room, this.state.token as string, { before: oldest })
+      );
+      if (generation !== this.enterGeneration || this.state.room !== room) {
+        return false;
+      }
+      const known = new Set(this.state.messages.map((message) => message.id));
+      const older = page.messages.filter((message) => message.id == null || !known.has(message.id));
+      this.state.hasMore = page.has_more;
+      if (older.length === 0) {
+        return false;
+      }
+      this.state.messages = [...older.map((message) => ({ ...message })), ...this.state.messages];
+      for (const message of older) {
+        if (message.id != null) {
+          this.rememberDisplayed(message.id);
+        }
+      }
+      this.emit('older', { messages: older });
+      return true;
+    } finally {
+      this.loadingOlder = false;
+    }
+  }
+
+  private applyRoomHistory(messages: MessageRecord[], hasMore: boolean, generation: number): void {
     if (generation !== this.enterGeneration) {
       return;
     }
+    this.state.hasMore = hasMore;
     const queued = this.enterQueue;
     this.enterQueue = [];
     const merged = messages.map((message) => ({ ...message }));

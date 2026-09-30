@@ -81,12 +81,19 @@ export interface RoomRecord {
   last_message?: LastMessagePreview | null;
 }
 
+export interface MessagePage {
+  messages: MessageRecord[];
+  has_more: boolean;
+}
+
 export interface ClientState {
   username: string | null;
   token: string | null;
   room: string | null;
   roomUsers: string[];
   messages: MessageRecord[];
+  /** Older messages exist behind the oldest loaded id. */
+  hasMore: boolean;
   baseUrl: string;
 }
 
