@@ -2734,8 +2734,8 @@ a.yt-preview-author:hover {
   inset: 0;
 }
 
-.watch-player :global(iframe),
-.watch-player :global(> div) {
+.watch-player iframe,
+.watch-player > div {
   position: absolute !important;
   inset: 0 !important;
   width: 100% !important;

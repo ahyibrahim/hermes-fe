@@ -76,6 +76,7 @@ Slash commands:
   /help                 Show this help
   /health               Check backend health
   /join <room>          Switch room, reload users and history
+  /older                Load the next older page of this room
   /leave [room]         Leave a group or DM (not general)
   /sendfile <path>      Upload a file to the current room
   /getfile <id> [path]  Download a file by id
@@ -262,6 +263,20 @@ async function handleSlashCommand(command: string, args: string[], rest: string)
       }
       await session.enterRoom(room);
       refreshPrompt();
+      break;
+    }
+    case 'older': {
+      const older: MessageRecord[] = [];
+      const stop = session.on('older', (payload) => older.push(...payload.messages));
+      const loaded = await session.loadOlderMessages();
+      stop();
+      if (!loaded) {
+        say('No older messages.');
+        break;
+      }
+      for (const message of older) {
+        say(formatMessage(message));
+      }
       break;
     }
     case 'leave': {

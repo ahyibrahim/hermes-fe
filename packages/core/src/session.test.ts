@@ -600,3 +600,42 @@ test('typing indicators fan out and clear on stop', async () => {
     await backend.close();
   }
 });
+
+test('history loads the latest page, and before fetches the page above it', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  const session = createSession(backend.baseUrl);
+  const api = new HermesApi(backend.baseUrl, new MemoryFileIO());
+
+  try {
+    await session.login('alice', 'secret');
+    const token = session.getState().token as string;
+    for (let i = 0; i < 5; i += 1) {
+      await api.createMessage('general', `m${i}`, token);
+    }
+
+    const latest = await api.listMessages('general', token, { limit: 2 });
+    assert.equal(latest.has_more, true);
+    assert.deepEqual(
+      latest.messages.map((row) => row.content),
+      ['m3', 'm4']
+    );
+
+    await session.enterRoom('general');
+    assert.equal(session.getState().hasMore, false);
+    assert.equal(session.getState().messages.length, 5);
+
+    const older = await api.listMessages('general', token, {
+      before: latest.messages[0]?.id,
+      limit: 2,
+    });
+    assert.equal(older.has_more, true);
+    assert.deepEqual(
+      older.messages.map((row) => row.content),
+      ['m1', 'm2']
+    );
+  } finally {
+    session.shutdown();
+    await backend.close();
+  }
+});

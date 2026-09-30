@@ -1172,7 +1172,7 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         }
         const room = url.searchParams.get('room') ?? 'general';
         markRead(username, room);
-        const snapshot = messages.filter((message) => message.room === room);
+        let snapshot = messages.filter((message) => message.room === room);
         if (messageListGate) {
           messageListHolds += 1;
           try {
@@ -1181,7 +1181,17 @@ export async function startFakeBackend(): Promise<FakeBackend> {
             messageListHolds -= 1;
           }
         }
-        sendJson(res, 200, snapshot);
+        const beforeRaw = url.searchParams.get('before');
+        const before = beforeRaw == null ? null : Number(beforeRaw);
+        if (before != null && Number.isFinite(before)) {
+          snapshot = snapshot.filter((message) => message.id < before);
+        }
+        const limitRaw = url.searchParams.get('limit');
+        const limit = limitRaw == null ? 100 : Number(limitRaw);
+        const pageSize = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 100) : 100;
+        const hasMore = snapshot.length > pageSize;
+        const page = snapshot.slice(Math.max(0, snapshot.length - pageSize));
+        sendJson(res, 200, { messages: page, has_more: hasMore });
         return;
       }
 
