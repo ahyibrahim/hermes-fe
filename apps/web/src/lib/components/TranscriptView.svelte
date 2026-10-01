@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MessageRecord, PublicUser, TranscriptRow } from '@hermes/core';
+  import { roleAtLeast } from '@hermes/core';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import MessageGroup from '$lib/components/MessageGroup.svelte';
@@ -76,12 +77,13 @@
             users={directory}
             showName={row.group.showName}
             ownName={username}
-            isAdmin={me?.role === 'admin'}
+            isAdmin={roleAtLeast(me?.role, 'admin')}
             {shouldAnimateEnter}
             {onDownload}
-            onUnsend={onUnsend}
-            onResetPassword={me?.role === 'admin' ? onResetPassword : undefined}
-            onSetRole={me?.role === 'admin' ? onSetRole : undefined}
+            {onUnsend}
+            onResetPassword={roleAtLeast(me?.role, 'admin') ? onResetPassword : undefined}
+            onSetRole={roleAtLeast(me?.role, 'admin') ? onSetRole : undefined}
+            actorRole={me?.role ?? null}
             {onWatchTogether}
           />
         {/if}

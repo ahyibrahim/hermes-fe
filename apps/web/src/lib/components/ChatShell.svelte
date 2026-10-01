@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ConnectionStatus, MessageRecord, PublicUser, RoomRecord } from '@hermes/core';
-  import { groupTranscript, parseYouTubeVideoId } from '@hermes/core';
+  import { groupTranscript, parseYouTubeVideoId, roleAtLeast } from '@hermes/core';
   import { goto } from '$app/navigation';
   import { downloadAttachment, getFileIO, getSession, signOut } from '$lib/client';
   import Avatar from '$lib/components/Avatar.svelte';
@@ -195,7 +195,7 @@
     Boolean(
       watch &&
         username &&
-        (watch.host === username || me?.role === 'admin')
+        (watch.host === username || roleAtLeast(me?.role, 'admin'))
     )
   );
 
@@ -798,7 +798,7 @@
     if (!room || room.slug === 'general' || isDm(room)) {
       return false;
     }
-    if (me?.role === 'admin') {
+    if (roleAtLeast(me?.role, 'admin')) {
       return true;
     }
     return me != null && room.creator_id != null && room.creator_id === me.id;
@@ -1455,7 +1455,7 @@
               {showAddPicker}
               canLeave={canLeaveRoom(currentRoomRecord())}
               canKick={canModerateRoom(currentRoomRecord())}
-              actorIsAdmin={me?.role === 'admin'}
+              actorIsAdmin={roleAtLeast(me?.role, 'admin')}
               canDelete={canModerateRoom(currentRoomRecord())}
               {leaving}
               deleting={deletingRoom}
@@ -1467,8 +1467,9 @@
               onLeave={() => void leaveSlug(currentRoom as string)}
               onKick={(user) => void kickFromRoom(user)}
               onDelete={() => void deleteCurrentRoom()}
-              onResetPassword={me?.role === 'admin' ? resetPasswordFor : undefined}
-              onSetRole={me?.role === 'admin' ? setRoleFor : undefined}
+              onResetPassword={roleAtLeast(me?.role, 'admin') ? resetPasswordFor : undefined}
+              onSetRole={roleAtLeast(me?.role, 'admin') ? setRoleFor : undefined}
+              actorRole={me?.role ?? null}
             />
           {/if}
         {:else}

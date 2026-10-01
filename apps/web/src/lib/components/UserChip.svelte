@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PublicUser } from '@hermes/core';
+  import type { PublicUser, UserRole } from '@hermes/core';
   import Avatar from '$lib/components/Avatar.svelte';
   import HoverCard from '$lib/components/HoverCard.svelte';
   import { colorClass } from '$lib/ui';
@@ -12,6 +12,7 @@
     online = false,
     onResetPassword,
     onSetRole,
+    actorRole = null,
   }: {
     user: PublicUser;
     showName?: boolean;
@@ -20,10 +21,11 @@
     online?: boolean;
     onResetPassword?: (user: PublicUser) => void;
     onSetRole?: (user: PublicUser, role: 'member' | 'admin') => void;
+    actorRole?: UserRole | null;
   } = $props();
 </script>
 
-<HoverCard {user} {onResetPassword} {onSetRole}>
+<HoverCard {user} {onResetPassword} {onSetRole} {actorRole}>
   <span class="user-chip">
     {#if showAvatar}
       <Avatar {user} {size} {online} />
