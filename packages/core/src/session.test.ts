@@ -130,6 +130,35 @@ test('reconnect re-issues join_room', async () => {
   }
 });
 
+test('a session-ended close clears the stored token and does not reconnect', async () => {
+  const backend = await startFakeBackend();
+  backend.seedUser('alice', 'secret');
+  const tokens = new MemoryTokenStore();
+  const session = createSession(backend.baseUrl, tokens);
+  let expired = false;
+  session.on('authExpired', ({ source }) => {
+    if (source === 'ws') {
+      expired = true;
+    }
+  });
+
+  try {
+    await session.login('alice', 'secret');
+    await session.enterRoom('general');
+    await waitFor(() => backend.joinCount >= 1);
+    const before = backend.joinCount;
+    backend.endSessions();
+    await waitFor(() => expired);
+    assert.equal(await tokens.load(), null);
+    assert.equal(session.getState().token, null);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(backend.joinCount, before);
+  } finally {
+    session.shutdown();
+    await backend.close();
+  }
+});
+
 test('a REST 401 clears the stored token', async () => {
   const backend = await startFakeBackend();
   backend.seedUser('alice', 'secret');

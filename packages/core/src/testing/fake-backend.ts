@@ -12,6 +12,8 @@ export interface FakeBackend {
   close(): Promise<void>;
   revokeToken(token: string): void;
   dropConnections(): void;
+  /** Close live sockets the way the server does when a session is revoked. */
+  endSessions(): void;
   seedUser(username: string, password: string): void;
   /** GET /messages snapshots, then waits until resumeMessageLists(). */
   holdMessageLists(): void;
@@ -1799,6 +1801,11 @@ export async function startFakeBackend(): Promise<FakeBackend> {
     dropConnections() {
       for (const client of [...clients]) {
         client.socket.close();
+      }
+    },
+    endSessions() {
+      for (const client of [...clients]) {
+        client.socket.close(4001, 'session ended');
       }
     },
     holdMessageLists() {
