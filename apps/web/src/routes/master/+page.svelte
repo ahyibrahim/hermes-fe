@@ -4,7 +4,7 @@
   import AuthBrand from '$lib/components/AuthBrand.svelte';
   import { getApiBaseUrl } from '$lib/base-url';
   import { getSession } from '$lib/client';
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
 
   type Invite = {
     id: number;
@@ -17,6 +17,7 @@
 
   type GuestRow = {
     username: string;
+    displayName: string;
     status: 'waiting' | 'admitted';
     rooms: string[];
   };
@@ -35,6 +36,7 @@
   let guests = $state<GuestRow[]>([]);
   let issuedUrl = $state('');
   let busy = $state(false);
+  let poll: ReturnType<typeof setInterval> | undefined;
 
   const session = getSession();
 
@@ -88,6 +90,18 @@
       error = err instanceof Error ? err.message : String(err);
     } finally {
       checking = false;
+    }
+    poll = setInterval(() => {
+      if (!allowed) {
+        return;
+      }
+      void refresh().catch(() => undefined);
+    }, 2000);
+  });
+
+  onDestroy(() => {
+    if (poll) {
+      clearInterval(poll);
     }
   });
 
@@ -234,7 +248,8 @@
         <ul class="pick">
           {#each guests as guest (guest.username)}
             <li>
-              <span>{guest.username}</span>
+              <span>{guest.displayName}</span>
+              <span class="account">{guest.username}</span>
               <span class="role-label">guest</span>
               <span>{guest.status}</span>
               {#if guest.status === 'waiting'}
@@ -289,6 +304,25 @@
     gap: 0.5rem;
     align-items: center;
     margin-bottom: 0.4rem;
+  }
+
+  .pick label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    color: var(--text);
+  }
+
+  .pick input[type='checkbox'] {
+    width: auto;
+    margin: 0;
+    flex: 0 0 auto;
+  }
+
+  .account {
+    color: var(--text-muted);
+    font-size: 0.8rem;
   }
 
   .issued {

@@ -2,7 +2,7 @@
   import type { PublicUser, UserRole } from '@hermes/core';
   import Avatar from '$lib/components/Avatar.svelte';
   import HoverCard from '$lib/components/HoverCard.svelte';
-  import { colorClass } from '$lib/ui';
+  import { colorClass, visibleName } from '$lib/ui';
 
   let {
     user,
@@ -31,7 +31,7 @@
       <Avatar {user} {size} {online} />
     {/if}
     {#if showName}
-      <span class="chip-name {colorClass(user.color)}">{user.username}</span>
+      <span class="chip-name {colorClass(user.color)}">{visibleName(user)}</span>
     {/if}
   </span>
 </HoverCard>

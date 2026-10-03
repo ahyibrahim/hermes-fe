@@ -177,6 +177,14 @@ export function colorClass(color: string | null | undefined): string {
   return color ? `user-color-${color}` : '';
 }
 
+export function visibleName(user: { username?: string | null; display_name?: string | null } | null | undefined): string {
+  const display = user?.display_name?.trim();
+  if (display) {
+    return display;
+  }
+  return user?.username?.trim() || '';
+}
+
 export function isSystemUser(user: PublicUser | null | undefined): boolean {
   return Boolean(user?.system);
 }

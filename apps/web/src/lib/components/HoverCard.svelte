@@ -4,7 +4,7 @@
   import type { Snippet } from 'svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import { popup } from '$lib/motion';
-  import { colorClass, portal } from '$lib/ui';
+  import { colorClass, portal, visibleName } from '$lib/ui';
   import { onDestroy, onMount } from 'svelte';
 
   let {
@@ -201,7 +201,10 @@
       <div class="hover-card-inner">
         <Avatar {user} size="lg" />
         <div class="hover-meta">
-          <div class="hover-name {colorClass(user.color)}">{user.username}</div>
+          <div class="hover-name {colorClass(user.color)}">{visibleName(user)}</div>
+          {#if user.display_name && user.display_name !== user.username}
+            <div class="hover-role">{user.username}</div>
+          {/if}
           <div class="hover-role">{user.role ?? 'member'}</div>
             {#if showAdminActions}
             {#if canDemote}

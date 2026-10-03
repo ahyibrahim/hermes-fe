@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import AuthBrand from '$lib/components/AuthBrand.svelte';
 
   type GuestMessage = {
     id: number;
     sender: string;
+    sender_name?: string;
     content: string;
     created_at: string;
   };
@@ -16,6 +18,7 @@
 
   let token = $state('');
   let username = $state('');
+  let displayName = $state('');
   let error = $state('');
   let busy = $state(false);
   let status = $state<'join' | 'waiting' | 'admitted'>('join');
@@ -69,9 +72,7 @@
           message?: GuestMessage & { room?: string };
         };
         if (frame.type === 'message' && frame.message && frame.message.room === room) {
-          if (!messages.some((item) => item.id === frame.message!.id)) {
-            messages = [...messages, frame.message];
-          }
+          void loadMessages().catch(() => undefined);
         }
       } catch {
         // Ignore a frame this page does not render.
@@ -86,7 +87,10 @@
       return;
     }
     const data = await readJson(res);
-    const body = data as { user?: { status?: string }; rooms?: GuestRoom[] };
+    const body = data as { user?: { status?: string; displayName?: string }; rooms?: GuestRoom[] };
+    if (body.user?.displayName) {
+      displayName = body.user.displayName;
+    }
     if (body.user?.status === 'admitted') {
       const became = status !== 'admitted';
       status = 'admitted';
@@ -142,11 +146,8 @@
     form.set('file', file);
     try {
       const res = await fetch('/files', { method: 'POST', body: form });
-      const data = await readJson(res);
-      const message = (data as { message?: GuestMessage }).message;
-      if (message?.id && !messages.some((item) => item.id === message.id)) {
-        messages = [...messages, message];
-      }
+      await readJson(res);
+      await loadMessages();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -167,11 +168,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room: active.slug, content }),
       });
-      const data = await readJson(res);
-      const message = data as GuestMessage;
-      if (message.id && !messages.some((item) => item.id === message.id)) {
-        messages = [...messages, message];
-      }
+      await readJson(res);
+      await loadMessages();
     } catch (err) {
       draft = content;
       error = err instanceof Error ? err.message : String(err);
@@ -204,6 +202,7 @@
 </script>
 
 <div class="auth-page">
+  <AuthBrand />
   <div class="auth-card panel">
     <h1>Guest</h1>
     {#if error}
@@ -211,7 +210,7 @@
     {/if}
 
     {#if status === 'join'}
-      <p class="lede">Choose a name. You will wait until the master lets you in.</p>
+      <p class="lede">Choose the name people will see. You will wait until the master lets you in.</p>
       <form onsubmit={onJoin}>
         <label for="guest-name">Name</label>
         <input id="guest-name" autocomplete="username" autocapitalize="none" spellcheck="false" bind:value={username} />
@@ -221,9 +220,9 @@
         <p class="lede">This page needs the invite link, opened on this host.</p>
       {/if}
     {:else if status === 'waiting'}
-      <p class="lede">Waiting for the master. You are marked as a guest. Nothing from the room is visible yet.</p>
+      <p class="lede">Waiting for the master. You will appear as {displayName || username}. Nothing from the room is visible yet.</p>
     {:else}
-      <p class="lede"><span class="role-label">guest</span> {username || 'You'}</p>
+      <p class="lede"><span class="role-label">guest</span> {displayName || username || 'You'}</p>
       {#if rooms.length > 1}
         <label for="guest-room">Room</label>
         <select id="guest-room" bind:value={room} onchange={() => void loadMessages()}>
@@ -237,7 +236,7 @@
       <ul class="transcript">
         {#each messages as message (message.id)}
           <li>
-            <span class="who">{message.sender}</span>
+            <span class="who">{message.sender_name || message.sender}</span>
             <span>{message.content}</span>
           </li>
         {/each}

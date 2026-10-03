@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PublicUser } from '@hermes/core';
   import { getSession } from '$lib/client';
-  import { colorClass, loadAvatarUrl } from '$lib/ui';
+  import { colorClass, loadAvatarUrl, visibleName } from '$lib/ui';
 
   let {
     user,
@@ -34,7 +34,7 @@
     };
   });
 
-  const initial = $derived((user.username?.slice(0, 1) || '?').toUpperCase());
+  const initial = $derived((visibleName(user).slice(0, 1) || '?').toUpperCase());
 </script>
 
 <span class="avatar-wrap" class:online>

@@ -1690,6 +1690,7 @@ button {
 .user-color-plum { --user-color: #7e22ce; }
 .user-color-rose { --user-color: #c026d3; }
 .user-color-slate { --user-color: #475569; }
+.user-color-ash { --user-color: #6b7280; }
 
 @media (prefers-color-scheme: dark) {
   .user-color-rust { --user-color: #f87171; }
@@ -1702,6 +1703,7 @@ button {
   .user-color-plum { --user-color: #c084fc; }
   .user-color-rose { --user-color: #f472b6; }
   .user-color-slate { --user-color: #94a3b8; }
+  .user-color-ash { --user-color: #d1d5db; }
 }
 
 .auth-brand {
