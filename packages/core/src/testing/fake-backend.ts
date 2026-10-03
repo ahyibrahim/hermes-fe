@@ -12,6 +12,8 @@ export interface FakeBackend {
   close(): Promise<void>;
   revokeToken(token: string): void;
   dropConnections(): void;
+  /** Close live sockets the way the server does when a session is revoked. */
+  endSessions(): void;
   seedUser(username: string, password: string): void;
   /** GET /messages snapshots, then waits until resumeMessageLists(). */
   holdMessageLists(): void;
@@ -23,7 +25,7 @@ export interface FakeBackend {
 interface StoredUser {
   id: number;
   password: string;
-  role: 'member' | 'admin';
+  role: 'guest' | 'member' | 'admin' | 'master';
   avatarFileId: number | null;
   color: string;
   system?: boolean;
@@ -160,6 +162,26 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   const connectedUsers = (room: string): string[] => [
     ...new Set([...clients].filter((client) => client.room === room).map((client) => client.user)),
   ];
+
+  const roleRank = (role: string | undefined): number => {
+    if (role === 'master') return 3;
+    if (role === 'admin') return 2;
+    if (role === 'member') return 1;
+    return 0;
+  };
+
+  const sharesRoom = (a: string, b: string): boolean => {
+    if (a === b) return true;
+    for (const room of rooms.values()) {
+      if (room.members.includes(a) && room.members.includes(b)) return true;
+    }
+    return false;
+  };
+
+  const canSeeUser = (actor: string, other: string): boolean => {
+    if (roleRank(users.get(actor)?.role) >= 2) return true;
+    return sharesRoom(actor, other);
+  };
 
   const addToGeneral = (username: string): void => {
     const general = rooms.get('general');
@@ -375,10 +397,14 @@ export async function startFakeBackend(): Promise<FakeBackend> {
   };
 
   const canControlWatch = (username: string, session: WatchSession): boolean => {
+    const rank = roleRank(users.get(username)?.role);
+    if (rank < 1) {
+      return false;
+    }
     if (session.host === username) {
       return true;
     }
-    return users.get(username)?.role === 'admin';
+    return rank >= 2;
   };
 
   const removeFromWatch = (room: string, username: string, notifyLeaver: boolean): void => {
@@ -453,11 +479,10 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         users.set(username, {
           id: nextUserId++,
           password,
-          role: users.size === 0 ? 'admin' : 'member',
+          role: 'member',
           avatarFileId: null,
           color: nextUserColor([...users.values()].map((user) => user.color)),
         });
-        addToGeneral(username);
         const created = users.get(username);
         sendJson(res, 200, {
           user: { id: created?.id, username, role: created?.role, color: created?.color },
@@ -528,7 +553,11 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         if (!username) {
           return;
         }
-        sendJson(res, 200, publicUsers());
+        sendJson(
+          res,
+          200,
+          publicUsers().filter((user) => canSeeUser(username, user.username))
+        );
         return;
       }
 
@@ -658,13 +687,18 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         if (!actor) {
           return;
         }
-        if (users.get(actor)?.role !== 'admin') {
-          sendJson(res, 403, { error: 'admin required' });
+        if (roleRank(users.get(actor)?.role) < 2) {
+          sendJson(res, 403, { error: 'forbidden' });
           return;
         }
         const target = decodeURIComponent(resetMatch[1]).trim().toLowerCase();
-        if (!users.has(target) || users.get(target)?.system) {
+        const targetUser = users.get(target);
+        if (!targetUser || targetUser.system) {
           sendJson(res, 404, { error: 'user not found' });
+          return;
+        }
+        if (roleRank(users.get(actor)?.role) <= roleRank(targetUser.role)) {
+          sendJson(res, 403, { error: 'forbidden' });
           return;
         }
         const token = `reset-${nextToken++}`;
@@ -680,8 +714,8 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           return;
         }
         const actor = users.get(actorName);
-        if (!actor || actor.role !== 'admin') {
-          sendJson(res, 403, { error: 'admin required' });
+        if (!actor || roleRank(actor.role) < 2) {
+          sendJson(res, 403, { error: 'forbidden' });
           return;
         }
         const body = JSON.parse((await readBody(req)).toString()) as { role?: string };
@@ -699,9 +733,18 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 400, { error: 'cannot change a system user role' });
           return;
         }
+        if (target.role === 'master' || roleRank(actor.role) <= roleRank(target.role)) {
+          sendJson(res, 403, { error: 'forbidden' });
+          return;
+        }
+        if (roleRank(actor.role) <= roleRank(body.role)) {
+          sendJson(res, 403, { error: 'forbidden' });
+          return;
+        }
         if (
           target.role === 'admin' &&
           body.role === 'member' &&
+          actor.role !== 'master' &&
           [...users.values()].filter((user) => user.role === 'admin' && !user.system).length <= 1
         ) {
           sendJson(res, 400, { error: 'cannot demote the last admin' });
@@ -724,7 +767,9 @@ export async function startFakeBackend(): Promise<FakeBackend> {
         sendJson(
           res,
           200,
-          [...new Set([...clients].map((client) => client.user))].sort((a, b) => a.localeCompare(b))
+          [...new Set([...clients].map((client) => client.user))]
+            .filter((name) => canSeeUser(username, name))
+            .sort((a, b) => a.localeCompare(b))
         );
         return;
       }
@@ -1241,8 +1286,13 @@ export async function startFakeBackend(): Promise<FakeBackend> {
           sendJson(res, 404, { error: 'message not found' });
           return;
         }
-        if (existing.sender !== username && users.get(username)?.role !== 'admin') {
-          sendJson(res, 403, { error: 'only the sender or an admin can delete' });
+        const room = [...rooms.values()].find((item) => item.slug === existing.room);
+        if (!room?.members.includes(username)) {
+          sendJson(res, 404, { error: 'message not found' });
+          return;
+        }
+        if (existing.sender !== username && roleRank(users.get(username)?.role) < 2) {
+          sendJson(res, 404, { error: 'message not found' });
           return;
         }
         existing.content = '';
@@ -1751,6 +1801,11 @@ export async function startFakeBackend(): Promise<FakeBackend> {
     dropConnections() {
       for (const client of [...clients]) {
         client.socket.close();
+      }
+    },
+    endSessions() {
+      for (const client of [...clients]) {
+        client.socket.close(4001, 'session ended');
       }
     },
     holdMessageLists() {

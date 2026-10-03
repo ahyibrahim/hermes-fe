@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PublicUser } from '@hermes/core';
+  import type { PublicUser, UserRole } from '@hermes/core';
   import AddMembersPopup from '$lib/components/AddMembersPopup.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
@@ -30,6 +30,7 @@
     onDelete,
     onResetPassword,
     onSetRole,
+    actorRole = null,
   }: {
     members: PublicUser[];
     selfUsername?: string | null;
@@ -55,6 +56,7 @@
     onDelete?: () => void;
     onResetPassword?: (user: PublicUser) => void;
     onSetRole?: (user: PublicUser, role: 'member' | 'admin') => void;
+    actorRole?: UserRole | null;
   } = $props();
 
   let confirmLeave = $state(false);
@@ -77,9 +79,10 @@
           user={person}
           onResetPassword={person.username === selfUsername ? undefined : onResetPassword}
           onSetRole={person.username === selfUsername ? undefined : onSetRole}
+          {actorRole}
         />
         <span class="role-label">{person.role ?? 'member'}</span>
-        {#if canKick && onKick && person.username !== selfUsername && !person.system && (actorIsAdmin || person.role !== 'admin')}
+        {#if canKick && onKick && person.username !== selfUsername && !person.system && person.role !== 'master' && (actorIsAdmin || person.role !== 'admin')}
           {#if confirmKickId === person.id}
             <div class="menu-confirm-row member-kick">
               <button type="button" class="menu-item" disabled={kickingId != null} onclick={() => (confirmKickId = null)}>

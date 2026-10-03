@@ -784,10 +784,12 @@ export class SessionController {
 
     this.ws.onClose((info) => {
       this.emit('status', { status: this.ws.getStatus(), lastError: this.ws.getLastError() });
-      if (info.status === 401) {
+      const sessionEnded =
+        info.status === 401 || info.code === 4001 || info.reason === 'session ended';
+      if (sessionEnded) {
         void this.clearSession('ws');
         this.emit('info', {
-          message: 'WebSocket rejected (401). Session cleared; please log in again.',
+          message: 'Session ended. Please log in again.',
         });
         return;
       }

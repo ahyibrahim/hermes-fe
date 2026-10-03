@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { MessageRecord, PublicUser } from '@hermes/core';
+  import type { MessageRecord, PublicUser, UserRole } from '@hermes/core';
   import { flip } from 'svelte/animate';
   import MessageItem from '$lib/components/MessageItem.svelte';
   import UserChip from '$lib/components/UserChip.svelte';
@@ -18,6 +18,7 @@
     onUnsend,
     onResetPassword,
     onSetRole,
+    actorRole = null,
     onWatchTogether,
   }: {
     messages: MessageRecord[];
@@ -31,6 +32,7 @@
     onUnsend: (message: MessageRecord) => void;
     onResetPassword?: (user: PublicUser) => void;
     onSetRole?: (user: PublicUser, role: 'member' | 'admin') => void;
+    actorRole?: UserRole | null;
     onWatchTogether?: (url: string) => void;
   } = $props();
 
@@ -53,7 +55,8 @@
           size="md"
           onResetPassword={ownName === sender.username ? undefined : onResetPassword}
           onSetRole={ownName === sender.username ? undefined : onSetRole}
-        />
+            {actorRole}
+          />
       {/if}
     </div>
     {#if showName}
@@ -64,6 +67,7 @@
             showAvatar={false}
             onResetPassword={ownName === sender.username ? undefined : onResetPassword}
             onSetRole={ownName === sender.username ? undefined : onSetRole}
+          {actorRole}
           />
         {:else}
           <span class="sender">{first.sender}</span>

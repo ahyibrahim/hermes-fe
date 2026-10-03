@@ -33,6 +33,8 @@ type PeerSlot = {
   makingOffer: boolean;
   ignoreOffer: boolean;
   audio: HTMLAudioElement;
+  /** Kept across stop/start so mid-call share renegotiates one video m-line. */
+  screenSender: RTCRtpSender | null;
 };
 
 const SPEAKING_THRESHOLD = 18;
@@ -450,7 +452,7 @@ export class VoiceMesh {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     const audio = new Audio();
     audio.autoplay = true;
-    const slot: PeerSlot = { pc, makingOffer: false, ignoreOffer: false, audio };
+    const slot: PeerSlot = { pc, makingOffer: false, ignoreOffer: false, audio, screenSender: null };
     this.peers.set(username, slot);
     this.publishPeers();
 
@@ -460,9 +462,10 @@ export class VoiceMesh {
       }
     }
     if (this.screenStream) {
-      for (const track of this.screenStream.getVideoTracks()) {
-        const sender = pc.addTrack(track, this.screenStream);
-        void this.capScreenSender(sender);
+      const track = this.screenStream.getVideoTracks()[0];
+      if (track) {
+        slot.screenSender = pc.addTrack(track, this.screenStream);
+        void this.capScreenSender(slot.screenSender);
       }
     }
 
@@ -519,7 +522,12 @@ export class VoiceMesh {
 
   private async makeOffer(username: string, slot: PeerSlot): Promise<void> {
     const room = this.state.room;
-    if (!room) {
+    if (!room || slot.makingOffer) {
+      return;
+    }
+    // Read once so a later catch can still see other states after await.
+    let signaling = slot.pc.signalingState;
+    if (signaling !== 'stable') {
       return;
     }
 
@@ -531,7 +539,8 @@ export class VoiceMesh {
         this.session.sendCallOffer(room, username, { type: local.type, sdp: local.sdp });
       }
     } catch (error) {
-      if (slot.pc.signalingState !== 'closed' && slot.pc.signalingState !== 'have-remote-offer') {
+      signaling = slot.pc.signalingState;
+      if (signaling !== 'closed' && signaling !== 'have-remote-offer') {
         this.setState({ error: error instanceof Error ? error.message : String(error) });
       }
     } finally {
@@ -548,7 +557,14 @@ export class VoiceMesh {
     }
 
     try {
-      await slot.pc.setRemoteDescription(asDescription(sdp));
+      if (offerCollision) {
+        await Promise.all([
+          slot.pc.setLocalDescription({ type: 'rollback' }),
+          slot.pc.setRemoteDescription(asDescription(sdp)),
+        ]);
+      } else {
+        await slot.pc.setRemoteDescription(asDescription(sdp));
+      }
       await this.flushIce(from);
       await slot.pc.setLocalDescription(await slot.pc.createAnswer());
       const local = slot.pc.localDescription;
@@ -816,30 +832,79 @@ export class VoiceMesh {
     if (!stream || !track) {
       return;
     }
-    for (const slot of this.peers.values()) {
-      const existing = slot.pc.getSenders().find((item) => item.track?.kind === 'video');
+    for (const [username, slot] of this.peers) {
+      const existing =
+        slot.screenSender ??
+        slot.pc.getSenders().find((item) => item.track?.kind === 'video') ??
+        null;
       if (existing) {
+        slot.screenSender = existing;
         await existing.replaceTrack(track);
         void this.capScreenSender(existing);
       } else {
-        const sender = slot.pc.addTrack(track, stream);
-        void this.capScreenSender(sender);
+        slot.screenSender = slot.pc.addTrack(track, stream);
+        void this.capScreenSender(slot.screenSender);
       }
+      // replaceTrack often skips negotiationneeded; always push an offer so peers
+      // already in the call get the video m-line without leaving and rejoining.
+      await this.renegotiateWith(username, slot);
     }
   }
 
   private async detachScreenFromPeers(): Promise<void> {
     for (const slot of this.peers.values()) {
-      for (const sender of slot.pc.getSenders()) {
-        if (sender.track?.kind === 'video') {
-          try {
-            await sender.replaceTrack(null);
-          } catch {
-            slot.pc.removeTrack(sender);
-          }
+      const sender =
+        slot.screenSender ??
+        slot.pc.getSenders().find((item) => item.track?.kind === 'video') ??
+        null;
+      if (!sender) {
+        continue;
+      }
+      slot.screenSender = sender;
+      try {
+        await sender.replaceTrack(null);
+      } catch {
+        try {
+          slot.pc.removeTrack(sender);
+        } catch {
+          // already gone
         }
+        slot.screenSender = null;
       }
     }
+  }
+
+  private async renegotiateWith(username: string, slot: PeerSlot): Promise<void> {
+    await this.waitForStable(slot.pc);
+    if (slot.pc.signalingState === 'closed') {
+      return;
+    }
+    if (slot.pc.signalingState !== 'stable') {
+      // Another offer is in flight; onnegotiationneeded or the next stable
+      // pass will pick up the attached track.
+      return;
+    }
+    await this.makeOffer(username, slot);
+  }
+
+  private waitForStable(pc: RTCPeerConnection, timeoutMs = 2000): Promise<void> {
+    if (pc.signalingState === 'stable' || pc.signalingState === 'closed') {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        pc.removeEventListener('signalingstatechange', onChange);
+        resolve();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      const onChange = () => {
+        if (pc.signalingState === 'stable' || pc.signalingState === 'closed') {
+          finish();
+        }
+      };
+      pc.addEventListener('signalingstatechange', onChange);
+    });
   }
 
   private async capScreenSender(sender: RTCRtpSender): Promise<void> {

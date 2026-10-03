@@ -1,4 +1,6 @@
-export type UserRole = 'member' | 'admin';
+import type { UserRole } from './roles.js';
+
+export type { UserRole };
 
 export interface UserPayload {
   id?: number;

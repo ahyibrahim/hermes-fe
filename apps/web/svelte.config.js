@@ -19,8 +19,7 @@ const config = {
       mode: 'hash',
       directives: {
         'default-src': ['self'],
-        // The YouTube IFrame API script and the player script it loads.
-        'script-src': ['self', 'https://www.youtube.com'],
+        'script-src': ['self'],
         // Svelte transitions insert <style> at runtime, and components use
         // style= attributes.
         'style-src': ['self', 'unsafe-inline'],

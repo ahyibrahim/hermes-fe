@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { PublicUser } from '@hermes/core';
+  import type { PublicUser, UserRole } from '@hermes/core';
+  import { outranks, roleAtLeast } from '@hermes/core';
   import type { Snippet } from 'svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import { popup } from '$lib/motion';
@@ -11,11 +12,13 @@
     children,
     onResetPassword,
     onSetRole,
+    actorRole = null,
   }: {
     user: PublicUser;
     children: Snippet;
     onResetPassword?: (user: PublicUser) => void;
     onSetRole?: (user: PublicUser, role: 'member' | 'admin') => void;
+    actorRole?: UserRole | null;
   } = $props();
 
   let open = $state(false);
@@ -29,7 +32,16 @@
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
 
   const tapToOpen = $derived(!canHover && !nestedAction);
-  const showAdminActions = $derived(Boolean((onResetPassword || onSetRole) && !user.system));
+  const canReset = $derived(
+    Boolean(onResetPassword && actorRole && outranks(actorRole, user.role) && user.role !== 'master' && !user.system)
+  );
+  const canPromote = $derived(
+    Boolean(onSetRole && roleAtLeast(actorRole, 'master') && (user.role ?? 'member') === 'member' && !user.system)
+  );
+  const canDemote = $derived(
+    Boolean(onSetRole && roleAtLeast(actorRole, 'master') && user.role === 'admin' && !user.system)
+  );
+  const showAdminActions = $derived(canReset || canPromote || canDemote);
 
   function updatePosition(): void {
     if (!wrap || typeof window === 'undefined') {
@@ -191,42 +203,40 @@
         <div class="hover-meta">
           <div class="hover-name {colorClass(user.color)}">{user.username}</div>
           <div class="hover-role">{user.role ?? 'member'}</div>
-          {#if showAdminActions}
-            {#if onSetRole}
-              {#if (user.role ?? 'member') === 'admin'}
-                <button
-                  type="button"
-                  class="reset-pw"
-                  onclick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onSetRole(user, 'member');
-                  }}
-                >
-                  Demote to member
-                </button>
-              {:else}
-                <button
-                  type="button"
-                  class="reset-pw"
-                  onclick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onSetRole(user, 'admin');
-                  }}
-                >
-                  Promote to admin
-                </button>
-              {/if}
-            {/if}
-            {#if onResetPassword}
+            {#if showAdminActions}
+            {#if canDemote}
               <button
                 type="button"
                 class="reset-pw"
                 onclick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  onResetPassword(user);
+                  onSetRole?.(user, 'member');
+                }}
+              >
+                Demote to member
+              </button>
+            {:else if canPromote}
+              <button
+                type="button"
+                class="reset-pw"
+                onclick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onSetRole?.(user, 'admin');
+                }}
+              >
+                Promote to admin
+              </button>
+            {/if}
+            {#if canReset}
+              <button
+                type="button"
+                class="reset-pw"
+                onclick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onResetPassword?.(user);
                 }}
               >
                 Reset password

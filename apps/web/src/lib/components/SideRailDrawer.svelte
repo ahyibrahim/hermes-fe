@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PublicUser, RoomRecord } from '@hermes/core';
+  import { roleAtLeast } from '@hermes/core';
   import Avatar from '$lib/components/Avatar.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import IconGlyph from '$lib/components/IconGlyph.svelte';
@@ -226,8 +227,9 @@
                     <UserChip
                       user={person}
                       online={isOnline(person.username)}
-                      onResetPassword={me?.role === 'admin' ? onResetPassword : undefined}
-                      onSetRole={me?.role === 'admin' ? onSetRole : undefined}
+                      onResetPassword={roleAtLeast(me?.role, 'admin') ? onResetPassword : undefined}
+                      onSetRole={roleAtLeast(me?.role, 'admin') ? onSetRole : undefined}
+                      actorRole={me?.role ?? null}
                     />
                     <span class="role-label">{person.role ?? 'member'}</span>
                     <span class="you">you</span>
@@ -249,8 +251,9 @@
                     <UserChip
                       user={person}
                       online={isOnline(person.username)}
-                      onResetPassword={me?.role === 'admin' ? onResetPassword : undefined}
-                      onSetRole={me?.role === 'admin' ? onSetRole : undefined}
+                      onResetPassword={roleAtLeast(me?.role, 'admin') ? onResetPassword : undefined}
+                      onSetRole={roleAtLeast(me?.role, 'admin') ? onSetRole : undefined}
+                      actorRole={me?.role ?? null}
                     />
                     <span class="role-label">{person.role ?? 'member'}</span>
                   </div>

@@ -10,3 +10,4 @@ export * from './colors.js';
 export * from './message-body.js';
 export * from './message-groups.js';
 export * from './youtube.js';
+export { USER_ROLES, roleAtLeast, roleRank, outranks } from './roles.js';
