@@ -11,6 +11,7 @@
     statusLabel,
     notifyOn,
     notifyLabel,
+    showMaster = false,
     onNotify,
     onSignOut,
   }: {
@@ -20,6 +21,7 @@
     statusLabel: string;
     notifyOn: boolean;
     notifyLabel: string;
+    showMaster?: boolean;
     onNotify: () => void;
     onSignOut: () => void;
   } = $props();
@@ -32,6 +34,9 @@
     <IconGlyph name="profile" />
     Profile
   </a>
+  {#if showMaster}
+    <a class="menu-item" href="/master">Guests</a>
+  {/if}
   <button type="button" class="menu-item" aria-pressed={notifyOn} title={notifyLabel} onclick={onNotify}>
     <IconGlyph name={notifyOn ? 'bell' : 'bell-off'} />
     {notifyLabel}
