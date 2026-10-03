@@ -1525,6 +1525,7 @@
                 statusLabel={statusLabel(status)}
                 {notifyOn}
                 notifyLabel={notifyLabel()}
+                showMaster={me?.role === 'master'}
                 onNotify={() => void onNotifyClick()}
                 onSignOut={() => void onSignOut()}
               />

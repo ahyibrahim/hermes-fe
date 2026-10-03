@@ -61,6 +61,7 @@ export interface PublicUser {
   avatar_file_id?: number | null;
   color?: string | null;
   system?: boolean;
+  display_name?: string | null;
 }
 
 export interface LastMessagePreview {
