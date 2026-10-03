@@ -36,6 +36,7 @@
   let guests = $state<GuestRow[]>([]);
   let issuedUrl = $state('');
   let busy = $state(false);
+  let confirming = $state('');
   let poll: ReturnType<typeof setInterval> | undefined;
 
   const session = getSession();
@@ -168,6 +169,7 @@
 
   async function remove(username: string): Promise<void> {
     error = '';
+    confirming = '';
     try {
       await api('POST', `/guests/${encodeURIComponent(username)}/remove`);
       await refresh();
@@ -252,10 +254,16 @@
               <span class="account">{guest.username}</span>
               <span class="role-label">guest</span>
               <span>{guest.status}</span>
-              {#if guest.status === 'waiting'}
-                <button type="button" onclick={() => void admit(guest.username)}>Admit</button>
+              {#if confirming === guest.username}
+                <span>Delete {guest.displayName} and their messages?</span>
+                <button type="button" onclick={() => void remove(guest.username)}>Delete</button>
+                <button type="button" onclick={() => (confirming = '')}>Cancel</button>
+              {:else}
+                {#if guest.status === 'waiting'}
+                  <button type="button" onclick={() => void admit(guest.username)}>Admit</button>
+                {/if}
+                <button type="button" onclick={() => (confirming = guest.username)}>Remove</button>
               {/if}
-              <button type="button" onclick={() => void remove(guest.username)}>Remove</button>
             </li>
           {/each}
         </ul>
