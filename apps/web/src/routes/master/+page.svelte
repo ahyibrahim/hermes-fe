@@ -27,6 +27,8 @@
   let error = $state('');
   let notice = $state('');
   let open = $state(false);
+  let closesAt = $state<string | null>(null);
+  let openHours = $state(4);
   let port = $state(3010);
   let rooms = $state<RoomRecord[]>([]);
   let selected = $state<string[]>([]);
@@ -63,8 +65,9 @@
   }
 
   async function refresh(): Promise<void> {
-    const gateway = await api<{ open: boolean; port: number }>('GET', '/gateway');
+    const gateway = await api<{ open: boolean; port: number; closesAt: string | null }>('GET', '/gateway');
     open = gateway.open;
+    closesAt = gateway.closesAt;
     port = gateway.port;
     const inviteList = await api<{ invites: Invite[] }>('GET', '/invites');
     invites = inviteList.invites;
@@ -136,11 +139,21 @@
     }
   }
 
+  function closeLabel(iso: string): string {
+    const when = new Date(iso);
+    if (Number.isNaN(when.getTime())) {
+      return iso;
+    }
+    return when.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
   async function setOpen(next: boolean): Promise<void> {
     error = '';
     try {
-      const gateway = await api<{ open: boolean; port: number }>('POST', '/gateway', { open: next });
+      const body = next ? { open: true, hours: Number(openHours) } : { open: false };
+      const gateway = await api<{ open: boolean; port: number; closesAt: string | null }>('POST', '/gateway', body);
       open = gateway.open;
+      closesAt = gateway.closesAt;
       port = gateway.port;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
@@ -209,7 +222,14 @@
       {/if}
 
       <p class="lede">The guest page listens on this host at port {port}. It is {open ? 'open' : 'closed'}.</p>
-      <button type="button" onclick={() => void setOpen(!open)}>{open ? 'Close guest page' : 'Open guest page'}</button>
+      {#if open && closesAt}
+        <p class="lede">It closes {closeLabel(closesAt)}. People already inside stay until they are removed or their session ends.</p>
+        <button type="button" onclick={() => void setOpen(false)}>Close guest page</button>
+      {:else}
+        <label for="open-hours">Hours the page stays open</label>
+        <input id="open-hours" type="number" min="1" max="168" bind:value={openHours} />
+        <button type="button" onclick={() => void setOpen(true)}>Open guest page</button>
+      {/if}
 
       <form onsubmit={onCreate}>
         <h2>Invite</h2>

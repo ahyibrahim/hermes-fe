@@ -176,6 +176,7 @@ export function bindSessionListeners(
     }),
     session.on('memberAdded', () => {
       void shell.loadRooms();
+      void shell.loadDirectory();
     }),
     session.on('memberRemoved', async ({ room, users: removed }) => {
       const meName = session.getState().username;

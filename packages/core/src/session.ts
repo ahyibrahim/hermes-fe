@@ -27,8 +27,8 @@ export type SessionEventMap = {
   info: { message: string };
   error: { message: string };
   authExpired: { source: 'rest' | 'ws' };
-  callPeers: { room: string; users: string[]; sharing: string | null };
-  userJoinedCall: { room: string; user: string };
+  callPeers: { room: string; users: string[]; sharing: string | null; guests: string[] };
+  userJoinedCall: { room: string; user: string; guest: boolean };
   userLeftCall: { room: string; user: string };
   leftCall: { room: string };
   screenShareStarted: { room: string; user: string };
@@ -37,7 +37,7 @@ export type SessionEventMap = {
   callAnswer: { room: string; from: string; sdp: SessionDescriptionPayload };
   iceCandidate: { room: string; from: string; candidate: IceCandidatePayload | null };
   roomActivity: { room: string; message: MessageRecord };
-  callStarted: { room: string; user: string };
+  callStarted: { room: string; user: string; guest: boolean };
   messageDeleted: MessageRecord;
   userUpdated: PublicUser;
   memberAdded: { room: string; addedBy: string; users: string[]; members: string[] };
@@ -870,15 +870,18 @@ export class SessionController {
 
   private handleCall(payload: WsIncomingMessage): boolean {
     if (payload.type === 'call_started' && payload.room && typeof payload.user === 'string') {
-      this.emit('callStarted', { room: payload.room, user: payload.user });
+      this.emit('callStarted', { room: payload.room, user: payload.user, guest: payload.guest === true });
       return true;
     }
 
     if (payload.type === 'call_peers' && payload.room && Array.isArray(payload.users)) {
       this.emit('callPeers', {
         room: payload.room,
-        users: payload.users,
+        users: payload.users.filter((name): name is string => typeof name === 'string'),
         sharing: typeof payload.sharing === 'string' ? payload.sharing : null,
+        guests: Array.isArray(payload.guests)
+          ? payload.guests.filter((name): name is string => typeof name === 'string')
+          : [],
       });
       return true;
     }
@@ -894,7 +897,11 @@ export class SessionController {
     }
 
     if (payload.type === 'user_joined_call' && payload.room && typeof payload.user === 'string') {
-      this.emit('userJoinedCall', { room: payload.room, user: payload.user });
+      this.emit('userJoinedCall', {
+        room: payload.room,
+        user: payload.user,
+        guest: payload.guest === true,
+      });
       return true;
     }
 
