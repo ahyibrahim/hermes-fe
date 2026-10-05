@@ -27,11 +27,17 @@ export class GuestVoiceLink implements VoiceHost {
   private readonly listeners = new Map<string, Set<(payload: never) => void>>();
 
   constructor(
-    private readonly socket: WebSocket,
+    private readonly current: () => WebSocket | undefined,
     private readonly username: string
-  ) {
-    this.socket.addEventListener('message', (event) => {
+  ) {}
+
+  /** Follow a replacement socket. An already-open socket does not emit status. */
+  attach(socket: WebSocket): void {
+    socket.addEventListener('message', (event) => {
       this.onMessage(event);
+    });
+    socket.addEventListener('open', () => {
+      this.emit('status', { status: 'open' });
     });
   }
 
@@ -44,6 +50,10 @@ export class GuestVoiceLink implements VoiceHost {
   }
 
   async joinCall(room: string): Promise<void> {
+    const socket = this.current();
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Not connected.');
+    }
     this.send({ type: 'join_call', room });
   }
 
@@ -81,8 +91,9 @@ export class GuestVoiceLink implements VoiceHost {
   }
 
   private send(frame: unknown): void {
-    if (this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify(frame));
+    const socket = this.current();
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(frame));
     }
   }
 

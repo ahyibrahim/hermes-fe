@@ -32,6 +32,7 @@
   let draft = $state('');
   let poll: ReturnType<typeof setInterval> | undefined;
   let socket: WebSocket | undefined;
+  let link: GuestVoiceLink | undefined;
   let mesh: VoiceMesh | undefined;
   let inCall = $state(false);
   let addressPrompt = $state(false);
@@ -63,15 +64,28 @@
   }
 
   function connectSocket(): void {
-    socket?.close();
+    const previous = socket;
+    socket = undefined;
+    previous?.close();
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const next = new WebSocket(`${proto}//${location.host}/ws`);
     socket = next;
+    link?.attach(next);
     next.addEventListener('open', () => {
       const active = currentRoom();
       if (active) {
         next.send(JSON.stringify({ type: 'join_room', room: active.slug }));
       }
+    });
+    next.addEventListener('close', () => {
+      if (socket !== next || status !== 'admitted') {
+        return;
+      }
+      window.setTimeout(() => {
+        if (socket === next && status === 'admitted') {
+          connectSocket();
+        }
+      }, 1000);
     });
     next.addEventListener('message', (event) => {
       try {
@@ -152,7 +166,8 @@
     if (!ok || !socket) {
       return;
     }
-    const link = new GuestVoiceLink(socket, account);
+    link = new GuestVoiceLink(() => socket, account);
+    link.attach(socket);
     const next = new VoiceMesh(link, { confirmAddresses: () => askAddress() });
     mesh = next;
     await next.join(active.slug, { addressesReleased: true });
