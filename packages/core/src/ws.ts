@@ -10,6 +10,8 @@ export interface WsIncomingMessage {
   removed_by?: string;
   users?: string[];
   members?: string[];
+  guests?: string[];
+  guest?: boolean;
   sharing?: string | null;
   message?: MessageRecord;
   content?: string;

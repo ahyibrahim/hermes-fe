@@ -32,7 +32,8 @@
   import { ScrollPin } from '$lib/chat/scroll-pin.svelte';
   import { bindSessionListeners, type WatchView } from '$lib/chat/session-listeners';
   import { TranscriptBuffer } from '$lib/chat/transcript-buffer.svelte';
-  import { VoiceMesh, type VoiceState } from '$lib/voice/mesh';
+  import { ADDRESS_WARNING } from '$lib/voice/address-warning';
+  import { VoiceMesh, type VoiceHost, type VoiceState } from '$lib/voice/mesh';
   import { onMount, tick } from 'svelte';
 
   let rooms = $state<RoomRecord[]>([]);
@@ -78,6 +79,12 @@
   let notifyPerm = $state<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
   let notifyMuted = $state(false);
   let callToast = $state<{ room: string; user: string } | null>(null);
+  let addressPrompt = $state<{
+    message: string;
+    acceptLabel: string;
+    declineLabel: string;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
   let sendFlash = $state(false);
   let sendFlashTimer: ReturnType<typeof setTimeout> | null = null;
   let watch = $state<WatchView | null>(null);
@@ -384,12 +391,37 @@
     return notifyOn ? 'Mute notifications and sounds' : 'Unmute notifications and sounds';
   }
 
+  function roomHasGuest(slug: string): boolean {
+    const members = rooms.find((room) => room.slug === slug)?.members ?? [];
+    return members.some((name) => directory.some((person) => person.username === name && person.role === 'guest'));
+  }
+
+  function askAddress(message: string, acceptLabel: string, declineLabel: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      addressPrompt = { message, acceptLabel, declineLabel, resolve };
+    });
+  }
+
+  function answerAddress(ok: boolean): void {
+    const prompt = addressPrompt;
+    addressPrompt = null;
+    prompt?.resolve(ok);
+  }
+
   async function joinCall(room = currentRoom): Promise<void> {
-    if (!room || !mesh || voice.joining) {
+    if (!room || !mesh || voice.joining || addressPrompt) {
       return;
     }
+    let addressesReleased = false;
+    if (roomHasGuest(room)) {
+      const ok = await askAddress(ADDRESS_WARNING, 'Join call', 'Stay out');
+      if (!ok) {
+        return;
+      }
+      addressesReleased = true;
+    }
     unlockSfx();
-    await mesh.join(room);
+    await mesh.join(room, { addressesReleased });
     if (mesh.state.room === room) {
       playSfx('join');
       const sharer = mesh.state.sharing;
@@ -1142,6 +1174,11 @@
     return value;
   }
 
+  $effect(() => {
+    const names = directory.filter((person) => person.role === 'guest').map((person) => person.username);
+    mesh?.noteGuests(names);
+  });
+
   pin.track(
     () => buffer.displayMessages,
     () => buffer.transcriptPhase
@@ -1212,7 +1249,10 @@
     document.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true });
     document.addEventListener('keydown', onFirstGesture, { once: true, capture: true });
 
-    mesh = new VoiceMesh(session);
+    mesh = new VoiceMesh(session as unknown as VoiceHost, {
+      confirmAddresses: () =>
+        askAddress(`A guest is on this call. ${ADDRESS_WARNING}`, 'Continue', "Don't share"),
+    });
     const offVoice = mesh.subscribe((next) => {
       const previousError = voice.error;
       const prevRoom = voice.room;
@@ -1628,6 +1668,18 @@
     {previewLine}
   />
 </div>
+
+{#if addressPrompt}
+  <div class="address-warning" role="dialog" aria-modal="true" aria-labelledby="address-warning-title">
+    <p id="address-warning-title">{addressPrompt.message}</p>
+    <div class="address-warning-actions">
+      <button type="button" class="call-toast-join" onclick={() => answerAddress(true)}>{addressPrompt.acceptLabel}</button>
+      <button type="button" class="call-toast-dismiss address-warning-decline" onclick={() => answerAddress(false)}>
+        {addressPrompt.declineLabel}
+      </button>
+    </div>
+  </div>
+{/if}
 
 {#if callToast}
   {@const invite = callToast}

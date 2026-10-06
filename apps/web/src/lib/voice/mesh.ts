@@ -1,9 +1,42 @@
-import type {
-  IceCandidatePayload,
-  IceServer,
-  SessionController,
-  SessionDescriptionPayload,
-} from '@hermes/core';
+import type { IceCandidatePayload, IceServer, SessionDescriptionPayload } from '@hermes/core';
+
+export type VoiceHost = {
+  getState(): { username: string | null };
+  getIce(): Promise<{ iceServers?: IceServer[] }>;
+  joinCall(room: string): Promise<void>;
+  leaveCall(room: string): Promise<void>;
+  sendCallOffer(room: string, to: string, sdp: SessionDescriptionPayload): void;
+  sendCallAnswer(room: string, to: string, sdp: SessionDescriptionPayload): void;
+  sendIceCandidate(room: string, to: string, candidate: IceCandidatePayload | null): void;
+  startScreenShare(room: string): void;
+  stopScreenShare(room: string): void;
+  on(
+    event: 'callPeers',
+    listener: (payload: { room: string; users: string[]; sharing: string | null; guests?: string[] }) => void
+  ): () => void;
+  on(event: 'screenShareStarted', listener: (payload: { room: string; user: string }) => void): () => void;
+  on(event: 'screenShareStopped', listener: (payload: { room: string; user: string }) => void): () => void;
+  on(
+    event: 'userJoinedCall',
+    listener: (payload: { room: string; user: string; guest?: boolean }) => void
+  ): () => void;
+  on(event: 'userLeftCall', listener: (payload: { room: string; user: string }) => void): () => void;
+  on(event: 'leftCall', listener: (payload: { room: string }) => void): () => void;
+  on(
+    event: 'callOffer',
+    listener: (payload: { room: string; from: string; sdp: SessionDescriptionPayload }) => void
+  ): () => void;
+  on(
+    event: 'callAnswer',
+    listener: (payload: { room: string; from: string; sdp: SessionDescriptionPayload }) => void
+  ): () => void;
+  on(
+    event: 'iceCandidate',
+    listener: (payload: { room: string; from: string; candidate: IceCandidatePayload | null }) => void
+  ): () => void;
+  on(event: 'error', listener: (payload: { message: string }) => void): () => void;
+  on(event: 'status', listener: (payload: { status: string }) => void): () => void;
+};
 
 export type VoicePeer = {
   username: string;
@@ -89,6 +122,15 @@ export class VoiceMesh {
   private listeners = new Set<(state: VoiceState) => void>();
   private reconnecting = false;
   private stoppingShare = false;
+  /** Usernames of admitted guests. Addresses to them wait for confirmation. */
+  private guestNames = new Set<string>();
+  private addressesReleased = false;
+  private addressesDeclined = false;
+  private addressAsk: Promise<boolean> | null = null;
+  private addressGeneration = 0;
+  private waitingGuests = new Set<string>();
+  private queuedOffers = new Map<string, SessionDescriptionPayload>();
+  private confirmAddresses: (() => Promise<boolean>) | null = null;
   private onDeviceChange = (): void => {
     void this.handleDeviceChange();
   };
@@ -105,8 +147,20 @@ export class VoiceMesh {
     error: null,
   };
 
-  constructor(private readonly session: SessionController) {
+  constructor(
+    private readonly session: VoiceHost,
+    options?: { confirmAddresses?: () => Promise<boolean> }
+  ) {
+    this.confirmAddresses = options?.confirmAddresses ?? null;
     this.bindSession();
+  }
+
+  noteGuests(names: Iterable<string>): void {
+    for (const name of names) {
+      if (name) {
+        this.guestNames.add(name);
+      }
+    }
   }
 
   subscribe(listener: (state: VoiceState) => void): () => void {
@@ -115,7 +169,7 @@ export class VoiceMesh {
     return () => this.listeners.delete(listener);
   }
 
-  async join(room: string): Promise<void> {
+  async join(room: string, options?: { addressesReleased?: boolean }): Promise<void> {
     if (this.state.joining) {
       return;
     }
@@ -129,6 +183,9 @@ export class VoiceMesh {
       if (this.state.room && this.state.room !== room) {
         await this.leave();
         this.setState({ joining: true, error: null });
+      }
+      if (options?.addressesReleased) {
+        this.addressesReleased = true;
       }
 
       const ice = await this.session.getIce();
@@ -152,6 +209,7 @@ export class VoiceMesh {
       this.startSpeakPoll();
     } catch (error) {
       this.stopLocal();
+      this.resetAddressGate();
       const message =
         error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'NotFoundError')
           ? 'Microphone permission was denied. Stay out of the call until it is allowed.'
@@ -167,6 +225,7 @@ export class VoiceMesh {
 
   async leave(): Promise<void> {
     const room = this.state.room;
+    this.resetAddressGate();
     this.stopScreenTracks();
     this.teardownPeers();
     this.stopLocal();
@@ -319,9 +378,12 @@ export class VoiceMesh {
 
   private bindSession(): void {
     this.unsubscribers.push(
-      this.session.on('callPeers', ({ room, users, sharing }) => {
+      this.session.on('callPeers', ({ room, users, sharing, guests }) => {
         if (room !== this.state.room) {
           return;
+        }
+        if (guests) {
+          this.noteGuests(guests);
         }
         const me = this.session.getState().username;
         for (const user of users) {
@@ -348,9 +410,12 @@ export class VoiceMesh {
         const sharing = this.state.sharing === user ? null : this.state.sharing;
         this.setState({ sharing, preview: this.previewFor(sharing) });
       }),
-      this.session.on('userJoinedCall', ({ room, user }) => {
+      this.session.on('userJoinedCall', ({ room, user, guest }) => {
         if (room !== this.state.room) {
           return;
+        }
+        if (guest) {
+          this.noteGuests([user]);
         }
         if (user !== this.session.getState().username) {
           this.ensurePeer(user);
@@ -364,6 +429,7 @@ export class VoiceMesh {
       }),
       this.session.on('leftCall', ({ room }) => {
         if (room === this.state.room && !this.state.joining) {
+          this.resetAddressGate();
           this.stopScreenTracks();
           this.teardownPeers();
           this.stopLocal();
@@ -443,7 +509,15 @@ export class VoiceMesh {
     return local.localeCompare(remote) > 0;
   }
 
-  private ensurePeer(username: string): PeerSlot {
+  private ensurePeer(username: string): PeerSlot | null {
+    if (this.blocksGuest(username)) {
+      return null;
+    }
+    if (this.holdsGuest(username)) {
+      this.waitingGuests.add(username);
+      void this.askBeforeAddress();
+      return null;
+    }
     const existing = this.peers.get(username);
     if (existing) {
       return existing;
@@ -549,7 +623,16 @@ export class VoiceMesh {
   }
 
   private async onRemoteOffer(from: string, sdp: SessionDescriptionPayload): Promise<void> {
+    if (this.holdsGuest(from)) {
+      this.queuedOffers.set(from, sdp);
+      this.waitingGuests.add(from);
+      void this.askBeforeAddress();
+      return;
+    }
     const slot = this.ensurePeer(from);
+    if (!slot) {
+      return;
+    }
     const offerCollision = slot.makingOffer || slot.pc.signalingState !== 'stable';
     slot.ignoreOffer = !this.polite(from) && offerCollision;
     if (slot.ignoreOffer) {
@@ -965,5 +1048,67 @@ export class VoiceMesh {
     for (const listener of this.listeners) {
       listener(snap);
     }
+  }
+
+  private holdsGuest(username: string): boolean {
+    return this.guestNames.has(username) && !this.addressesReleased && !this.addressesDeclined;
+  }
+
+  private blocksGuest(username: string): boolean {
+    return this.guestNames.has(username) && this.addressesDeclined;
+  }
+
+  private askBeforeAddress(): Promise<boolean> {
+    if (this.addressesReleased) {
+      return Promise.resolve(true);
+    }
+    if (this.addressesDeclined) {
+      return Promise.resolve(false);
+    }
+    if (!this.addressAsk) {
+      const generation = this.addressGeneration;
+      const ask = this.confirmAddresses ? this.confirmAddresses() : Promise.resolve(false);
+      this.addressAsk = ask.then((ok) => {
+        if (generation !== this.addressGeneration) {
+          return false;
+        }
+        if (ok) {
+          this.releaseHeldGuests();
+        } else {
+          this.addressesDeclined = true;
+          for (const name of this.guestNames) {
+            this.pendingIce.delete(name);
+          }
+          this.waitingGuests.clear();
+          this.queuedOffers.clear();
+        }
+        return ok;
+      });
+    }
+    return this.addressAsk;
+  }
+
+  private releaseHeldGuests(): void {
+    this.addressesReleased = true;
+    const waiting = [...this.waitingGuests];
+    this.waitingGuests.clear();
+    for (const name of waiting) {
+      const offer = this.queuedOffers.get(name);
+      this.queuedOffers.delete(name);
+      if (offer) {
+        void this.onRemoteOffer(name, offer);
+      } else {
+        this.ensurePeer(name);
+      }
+    }
+  }
+
+  private resetAddressGate(): void {
+    this.addressGeneration += 1;
+    this.addressesReleased = false;
+    this.addressesDeclined = false;
+    this.addressAsk = null;
+    this.waitingGuests.clear();
+    this.queuedOffers.clear();
   }
 }

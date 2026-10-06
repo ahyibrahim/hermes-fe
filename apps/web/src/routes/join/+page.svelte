@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import AuthBrand from '$lib/components/AuthBrand.svelte';
+  import { ADDRESS_WARNING } from '$lib/voice/address-warning';
+  import { GuestVoiceLink } from '$lib/voice/guest-link';
+  import { VoiceMesh } from '$lib/voice/mesh';
 
   type GuestMessage = {
     id: number;
@@ -18,6 +21,7 @@
 
   let token = $state('');
   let username = $state('');
+  let account = $state('');
   let displayName = $state('');
   let error = $state('');
   let busy = $state(false);
@@ -28,6 +32,11 @@
   let draft = $state('');
   let poll: ReturnType<typeof setInterval> | undefined;
   let socket: WebSocket | undefined;
+  let link: GuestVoiceLink | undefined;
+  let mesh: VoiceMesh | undefined;
+  let inCall = $state(false);
+  let addressPrompt = $state(false);
+  let addressResolve: ((ok: boolean) => void) | null = null;
 
   async function readJson(res: Response): Promise<{ error?: string; [key: string]: unknown }> {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -55,15 +64,28 @@
   }
 
   function connectSocket(): void {
-    socket?.close();
+    const previous = socket;
+    socket = undefined;
+    previous?.close();
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const next = new WebSocket(`${proto}//${location.host}/ws`);
     socket = next;
+    link?.attach(next);
     next.addEventListener('open', () => {
       const active = currentRoom();
       if (active) {
         next.send(JSON.stringify({ type: 'join_room', room: active.slug }));
       }
+    });
+    next.addEventListener('close', () => {
+      if (socket !== next || status !== 'admitted') {
+        return;
+      }
+      window.setTimeout(() => {
+        if (socket === next && status === 'admitted') {
+          connectSocket();
+        }
+      }, 1000);
     });
     next.addEventListener('message', (event) => {
       try {
@@ -84,10 +106,14 @@
     const res = await fetch('/me');
     if (res.status === 401) {
       status = 'join';
+      await leaveCall();
       return;
     }
     const data = await readJson(res);
-    const body = data as { user?: { status?: string; displayName?: string }; rooms?: GuestRoom[] };
+    const body = data as { user?: { status?: string; displayName?: string; username?: string }; rooms?: GuestRoom[] };
+    if (body.user?.username) {
+      account = body.user.username;
+    }
     if (body.user?.displayName) {
       displayName = body.user.displayName;
     }
@@ -104,6 +130,61 @@
     status = 'waiting';
     rooms = [];
     messages = [];
+    await leaveCall();
+  }
+
+  function askAddress(): Promise<boolean> {
+    return new Promise((resolve) => {
+      addressResolve = resolve;
+      addressPrompt = true;
+    });
+  }
+
+  function answerAddress(ok: boolean): void {
+    addressPrompt = false;
+    const resolve = addressResolve;
+    addressResolve = null;
+    resolve?.(ok);
+  }
+
+  async function leaveCall(): Promise<void> {
+    const current = mesh;
+    mesh = undefined;
+    inCall = false;
+    if (current) {
+      await current.leave();
+    }
+  }
+
+  async function joinCall(): Promise<void> {
+    const active = currentRoom();
+    if (!active || !socket || !account || mesh || addressPrompt) {
+      return;
+    }
+    error = '';
+    const ok = await askAddress();
+    if (!ok || !socket) {
+      return;
+    }
+    link = new GuestVoiceLink(() => socket, account);
+    link.attach(socket);
+    const next = new VoiceMesh(link, { confirmAddresses: () => askAddress() });
+    mesh = next;
+    await next.join(active.slug, { addressesReleased: true });
+    inCall = next.state.room === active.slug;
+    if (!inCall) {
+      error = next.state.error ?? 'Could not join the call.';
+      mesh = undefined;
+    }
+  }
+
+  async function onRoomChange(): Promise<void> {
+    await leaveCall();
+    await loadMessages();
+    const active = currentRoom();
+    if (active && socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'join_room', room: active.slug }));
+    }
   }
 
   async function onJoin(event: Event): Promise<void> {
@@ -197,6 +278,7 @@
     if (poll) {
       clearInterval(poll);
     }
+    void leaveCall();
     socket?.close();
   });
 </script>
@@ -225,7 +307,7 @@
       <p class="lede"><span class="role-label">guest</span> {displayName || username || 'You'}</p>
       {#if rooms.length > 1}
         <label for="guest-room">Room</label>
-        <select id="guest-room" bind:value={room} onchange={() => void loadMessages()}>
+        <select id="guest-room" bind:value={room} onchange={() => void onRoomChange()}>
           {#each rooms as item (item.slug)}
             <option value={item.slug}>{item.name}</option>
           {/each}
@@ -248,6 +330,19 @@
       </form>
       <label class="file" for="guest-file">Upload</label>
       <input id="guest-file" type="file" onchange={(event) => void onFile(event)} />
+      {#if inCall}
+        <p class="lede">In the call.</p>
+        <button type="button" onclick={() => void leaveCall()}>Leave call</button>
+      {:else}
+        <button type="button" onclick={() => void joinCall()}>Join call</button>
+      {/if}
+      {#if addressPrompt}
+        <div class="address-warning" role="dialog" aria-modal="true">
+          <p>{ADDRESS_WARNING}</p>
+          <button type="button" onclick={() => answerAddress(true)}>Join call</button>
+          <button type="button" onclick={() => answerAddress(false)}>Stay out</button>
+        </div>
+      {/if}
     {/if}
   </div>
 </div>
@@ -277,5 +372,13 @@
   h2 {
     margin: 0.5rem 0;
     font-size: 1rem;
+  }
+
+  .address-warning {
+    margin-top: 0.75rem;
+  }
+
+  .address-warning p {
+    margin: 0 0 0.5rem;
   }
 </style>
